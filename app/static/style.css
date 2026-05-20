@@ -477,8 +477,12 @@ code {
   justify-content: space-between;
   gap: 8px 12px;
   padding: 10px 14px;
+  /* Honor iOS home-indicator / Android gesture bar so buttons aren't
+     hidden under the system UI. */
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   color: var(--text);
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.4);
   font-size: 14px;
 }
 

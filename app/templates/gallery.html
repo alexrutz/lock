@@ -179,8 +179,9 @@
 <!-- Hidden form used by JS to POST a list of selected ids for export -->
 <form id="export-selected-form" method="post" action="/export" hidden></form>
 
-<!-- Viewer modal -->
+<!-- Viewer modal. Controls live at the bottom for thumb reach on phones. -->
 <div id="viewer" class="viewer" hidden aria-modal="true" role="dialog">
+  <div id="viewer-grid" class="viewer-grid" data-count="0"></div>
   <div class="viewer-bar">
     <span id="viewer-caption" class="viewer-caption"></span>
     <div id="viewer-rating" class="viewer-rating" role="radiogroup" aria-label="Rate this photo" hidden>
@@ -198,7 +199,6 @@
       <button type="button" id="viewer-close" class="viewer-btn" aria-label="Close">×</button>
     </div>
   </div>
-  <div id="viewer-grid" class="viewer-grid" data-count="0"></div>
 </div>
 
 <script src="/static/upload.js" defer></script>
