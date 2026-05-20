@@ -38,6 +38,7 @@
   const pagePhotos = tiles.map((t) => ({
     id: Number(t.dataset.photoId),
     name: t.dataset.photoName,
+    hidden: t.dataset.hidden === "1",
   }));
 
   tiles.forEach((tile) => {
@@ -55,19 +56,44 @@
       saveSelection(selection);
       refreshActionBar();
     });
-    // Clicks on the checkbox label shouldn't trigger the tile-image link.
     tile.querySelector(".select-box").addEventListener("click", (e) => e.stopPropagation());
 
     const link = tile.querySelector(".tile-image-link");
     link.addEventListener("click", (e) => {
       e.preventDefault();
-      openViewer([{ id, name: tile.dataset.photoName }], 0);
+      openViewer([{ id, name: tile.dataset.photoName, hidden: tile.dataset.hidden === "1" }], 0);
     });
 
     wireStars(tile, id);
     wireTagRemove(tile, id);
     wireTagAdd(tile, id);
+    wireHide(tile, id);
   });
+
+  function wireHide(tile, id) {
+    const btn = tile.querySelector(".hide-btn");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      const currentlyHidden = btn.dataset.hidden === "1";
+      await postHide(id, !currentlyHidden);
+      // Tile state depends on whether show_hidden is currently active;
+      // a reload is the simplest correct outcome (the tile may need to
+      // appear or disappear from the page).
+      window.location.reload();
+    });
+  }
+
+  async function postHide(id, hidden) {
+    const fd = new FormData();
+    fd.append("hidden", hidden ? "true" : "false");
+    const res = await fetch(`/photo/${id}/hide`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: fd,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
 
   // ---------- top-level buttons ----------
   btnPreview.addEventListener("click", () => {
@@ -129,6 +155,7 @@
   const viewerClose = document.getElementById("viewer-close");
   const viewerPrev = document.getElementById("viewer-prev");
   const viewerNext = document.getElementById("viewer-next");
+  const viewerHide = document.getElementById("viewer-hide");
 
   // Navigation state for *single*-image viewer mode:
   //   pagePhotos is the current page in render order; index points into it.
@@ -167,10 +194,15 @@
         `${viewerIndex + 1} / ${pagePhotos.length}  ·  ${cur ? cur.name : ""}`;
       viewerPrev.hidden = false;
       viewerNext.hidden = false;
+      viewerHide.hidden = false;
+      viewerHide.textContent = cur && cur.hidden ? "Unhide" : "Hide";
+      viewerHide.dataset.photoId = cur ? String(cur.id) : "";
+      viewerHide.dataset.hidden = cur && cur.hidden ? "1" : "0";
     } else {
       viewerCaption.textContent = `${n} photo${n === 1 ? "" : "s"}`;
       viewerPrev.hidden = true;
       viewerNext.hidden = true;
+      viewerHide.hidden = true;
     }
   }
 
@@ -189,6 +221,18 @@
   viewerClose.addEventListener("click", closeViewer);
   viewerPrev.addEventListener("click", () => stepViewer(-1));
   viewerNext.addEventListener("click", () => stepViewer(1));
+  viewerHide.addEventListener("click", async () => {
+    const id = Number(viewerHide.dataset.photoId);
+    if (!id) return;
+    const currentlyHidden = viewerHide.dataset.hidden === "1";
+    try {
+      await postHide(id, !currentlyHidden);
+      // Closing + reloading is the safest behavior — the photo may now
+      // be excluded from the gallery (depending on show_hidden).
+      closeViewer();
+      window.location.reload();
+    } catch (err) { console.error(err); }
+  });
 
   // Click on the dimmed background closes (but not clicks on images).
   viewer.addEventListener("click", (e) => {

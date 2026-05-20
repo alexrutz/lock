@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS photos (
     thumb_wrap_nonce BLOB NOT NULL,
     thumb_nonce BLOB NOT NULL,
     rating INTEGER NOT NULL DEFAULT 0,
+    hidden INTEGER NOT NULL DEFAULT 0,
     uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -69,6 +70,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(photos)")}
     if "rating" not in cols:
         conn.execute("ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
+    if "hidden" not in cols:
+        conn.execute("ALTER TABLE photos ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:

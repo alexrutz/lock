@@ -24,6 +24,7 @@ class PhotoMeta:
     size: int
     uploaded_at: str
     rating: int = 0
+    hidden: bool = False
     tags: list[dict] = field(default_factory=list)
 
 
@@ -93,9 +94,15 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
     return photo_id
 
 
-def _filter_clauses(min_rating: int, filter_tag_id: int | None) -> tuple[str, list]:
+def _filter_clauses(
+    min_rating: int,
+    filter_tag_id: int | None,
+    include_hidden: bool = False,
+) -> tuple[str, list]:
     where: list[str] = []
     params: list = []
+    if not include_hidden:
+        where.append("hidden = 0")
     if min_rating > 0:
         where.append("rating >= ?")
         params.append(min_rating)
@@ -106,8 +113,12 @@ def _filter_clauses(min_rating: int, filter_tag_id: int | None) -> tuple[str, li
     return sql, params
 
 
-def count_photos(min_rating: int = 0, filter_tag_id: int | None = None) -> int:
-    where_sql, params = _filter_clauses(min_rating, filter_tag_id)
+def count_photos(
+    min_rating: int = 0,
+    filter_tag_id: int | None = None,
+    include_hidden: bool = False,
+) -> int:
+    where_sql, params = _filter_clauses(min_rating, filter_tag_id, include_hidden)
     with get_conn() as conn:
         return int(conn.execute(
             f"SELECT COUNT(*) AS c FROM photos {where_sql}", params
@@ -122,6 +133,7 @@ def list_photos_page(
     sort: str = "newest",
     min_rating: int = 0,
     filter_tag_id: int | None = None,
+    include_hidden: bool = False,
 ) -> list[PhotoMeta]:
     if sort not in SORT_OPTIONS:
         sort = "newest"
@@ -130,12 +142,12 @@ def list_photos_page(
         "oldest": "ORDER BY uploaded_at ASC,  id ASC",
         "rating": "ORDER BY rating DESC, uploaded_at DESC, id DESC",
     }[sort]
-    where_sql, where_params = _filter_clauses(min_rating, filter_tag_id)
+    where_sql, where_params = _filter_clauses(min_rating, filter_tag_id, include_hidden)
 
     with get_conn() as conn:
         rows = conn.execute(
             f"""SELECT id, original_name_ct, name_nonce, mime, size,
-                       uploaded_at, rating
+                       uploaded_at, rating, hidden
                 FROM photos
                 {where_sql}
                 {order_sql}
@@ -168,9 +180,21 @@ def list_photos_page(
             size=r["size"],
             uploaded_at=r["uploaded_at"],
             rating=r["rating"] or 0,
+            hidden=bool(r["hidden"]),
             tags=tag_map.get(pid, []),
         ))
     return out
+
+
+def set_hidden(photo_id: int, hidden: bool) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE photos SET hidden = ? WHERE id = ?",
+            (1 if hidden else 0, photo_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404)
+    return hidden
 
 
 def set_rating(photo_id: int, rating: int) -> int:

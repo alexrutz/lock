@@ -53,7 +53,13 @@
         {% endfor %}
       </select>
     </label>
-    {% if sort != 'newest' or min_rating > 0 or active_tag %}
+    <label class="show-hidden">
+      <input type="checkbox" name="show_hidden" value="1"
+             {% if show_hidden %}checked{% endif %}
+             onchange="this.form.submit()">
+      <span>Show hidden</span>
+    </label>
+    {% if sort != 'newest' or min_rating > 0 or active_tag or show_hidden %}
       <a class="clear" href="/">Clear filters</a>
     {% endif %}
   </form>
@@ -94,17 +100,26 @@
   {% else %}
     <div class="grid">
       {% for p in photos %}
-        <figure class="tile" data-photo-id="{{ p.id }}" data-photo-name="{{ p.name }}" data-rating="{{ p.rating }}">
+        <figure class="tile {% if p.hidden %}is-hidden{% endif %}"
+                data-photo-id="{{ p.id }}"
+                data-photo-name="{{ p.name }}"
+                data-rating="{{ p.rating }}"
+                data-hidden="{{ 1 if p.hidden else 0 }}">
           <label class="select-box">
             <input type="checkbox" class="select-cb" aria-label="Select photo">
             <span></span>
           </label>
+          {% if p.hidden %}<span class="hidden-badge" aria-label="Hidden">HIDDEN</span>{% endif %}
           <a href="/photo/{{ p.id }}" class="tile-image-link" target="_blank" rel="noopener">
             <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy" decoding="async">
           </a>
           <figcaption>
             <div class="row name-row">
               <span class="name" title="{{ p.name }}">{{ p.name }}</span>
+              <button type="button" class="link hide-btn"
+                      data-hidden="{{ 1 if p.hidden else 0 }}">
+                {% if p.hidden %}Unhide{% else %}Hide{% endif %}
+              </button>
               <form method="post" action="/photo/{{ p.id }}/delete"
                     onsubmit="return confirm('Delete {{ p.name }}?')">
                 <button type="submit" class="link danger">Delete</button>
@@ -139,7 +154,7 @@
 
     {% if pages > 1 %}
       <nav class="pager">
-        {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% endset %}
+        {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% endset %}
         {% if page > 1 %}
           <a href="?page=1&{{ qs }}">« First</a>
           <a href="?page={{ page - 1 }}&{{ qs }}">‹ Prev</a>
@@ -168,6 +183,7 @@
   <div class="viewer-bar">
     <span id="viewer-caption" class="viewer-caption"></span>
     <div class="viewer-controls">
+      <button type="button" id="viewer-hide" class="viewer-btn viewer-text-btn" hidden>Hide</button>
       <button type="button" id="viewer-prev" class="viewer-btn" aria-label="Previous">‹</button>
       <button type="button" id="viewer-next" class="viewer-btn" aria-label="Next">›</button>
       <button type="button" id="viewer-close" class="viewer-btn" aria-label="Close">×</button>

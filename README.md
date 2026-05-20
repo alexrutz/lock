@@ -63,6 +63,11 @@ Open <http://127.0.0.1:8000/>.
 - **Sort/filter bar** above the grid: sort by newest/oldest/top rated,
   filter by minimum rating, filter by tag. The filters are query-string
   driven so links are bookmarkable.
+- **Hide** lets you keep mediocre photos in the vault but exclude them
+  from the default view and the viewer's prev/next stepping. Toggle
+  *Show hidden* in the filter bar to bring them back (visually dimmed
+  with a HIDDEN badge) and unhide individual photos. *Export all* still
+  includes hidden photos.
 
 ## Viewing and exporting
 

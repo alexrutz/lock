@@ -40,6 +40,7 @@ def index(
     sort: str = "newest",
     min_rating: int = 0,
     tag: int | None = None,
+    show_hidden: bool = False,
 ):
     if not vault_initialized():
         return _redirect("/setup")
@@ -58,7 +59,9 @@ def index(
     if tag is not None and tag not in valid_tag_ids:
         tag = None
 
-    total = photos.count_photos(min_rating=min_rating, filter_tag_id=tag)
+    total = photos.count_photos(
+        min_rating=min_rating, filter_tag_id=tag, include_hidden=show_hidden,
+    )
     pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
     if page > pages:
         page = pages
@@ -67,6 +70,7 @@ def index(
         session,
         limit=GALLERY_PAGE_SIZE, offset=offset,
         sort=sort, min_rating=min_rating, filter_tag_id=tag,
+        include_hidden=show_hidden,
     )
 
     return templates.TemplateResponse(
@@ -81,6 +85,7 @@ def index(
             "min_rating": min_rating,
             "active_tag": tag,
             "all_tags": all_tags,
+            "show_hidden": show_hidden,
         },
     )
 
@@ -203,6 +208,19 @@ def thumb(photo_id: int, session: _Session = Depends(auth.require_session)):
 @app.post("/photo/{photo_id}/delete")
 def delete(photo_id: int, session: _Session = Depends(auth.require_session)):
     photos.delete_photo(session, photo_id)
+    return _redirect("/")
+
+
+@app.post("/photo/{photo_id}/hide")
+def hide(
+    request: Request,
+    photo_id: int,
+    hidden: bool = Form(...),
+    session: _Session = Depends(auth.require_session),
+):
+    new_state = photos.set_hidden(photo_id, hidden)
+    if _wants_json(request):
+        return {"id": photo_id, "hidden": new_state}
     return _redirect("/")
 
 
