@@ -1,13 +1,14 @@
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import auth, photos
-from .config import SESSION_COOKIE
+from .config import GALLERY_PAGE_SIZE, SESSION_COOKIE
 from .db import init_db, vault_initialized
+from .sessions import _Session
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -26,15 +27,31 @@ def _redirect(target: str) -> RedirectResponse:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request):
+def index(request: Request, page: int = 1):
     if not vault_initialized():
         return _redirect("/setup")
-    key = auth.read_session_key(request)
-    if key is None:
+    session = auth.read_session(request)
+    if session is None:
         return _redirect("/login")
-    items = photos.list_photos(key)
+
+    if page < 1:
+        page = 1
+    total = photos.count_photos()
+    pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
+    if page > pages:
+        page = pages
+    offset = (page - 1) * GALLERY_PAGE_SIZE
+    items = photos.list_photos_page(session, limit=GALLERY_PAGE_SIZE, offset=offset)
+
     return templates.TemplateResponse(
-        request, "gallery.html", {"photos": items}
+        request, "gallery.html",
+        {
+            "photos": items,
+            "page": page,
+            "pages": pages,
+            "total": total,
+            "page_size": GALLERY_PAGE_SIZE,
+        },
     )
 
 
@@ -108,24 +125,33 @@ def logout(request: Request):
 
 
 @app.post("/upload")
-async def upload(request: Request, file: UploadFile, key: bytes = Depends(auth.require_key)):
-    photos.save_upload(key, file)
+async def upload(file: UploadFile, session: _Session = Depends(auth.require_session)):
+    photos.save_upload(session, file)
     return _redirect("/")
 
 
 @app.get("/photo/{photo_id}")
-def photo(photo_id: int, key: bytes = Depends(auth.require_key)):
-    data, mime = photos.load_full(key, photo_id)
-    return Response(content=data, media_type=mime)
+def photo(photo_id: int, session: _Session = Depends(auth.require_session)):
+    chunks, mime, size = photos.load_full_stream(session, photo_id)
+    return StreamingResponse(
+        chunks,
+        media_type=mime,
+        headers={"Content-Length": str(size), "Cache-Control": "private, no-store"},
+    )
 
 
 @app.get("/thumb/{photo_id}")
-def thumb(photo_id: int, key: bytes = Depends(auth.require_key)):
-    data, mime = photos.load_thumb(key, photo_id)
-    return Response(content=data, media_type=mime)
+def thumb(photo_id: int, session: _Session = Depends(auth.require_session)):
+    data, mime = photos.load_thumb(session, photo_id)
+    # Browser may keep thumbnails in its memory cache for the duration of
+    # the session, but we never want them written to its disk cache.
+    return Response(
+        content=data, media_type=mime,
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @app.post("/photo/{photo_id}/delete")
-def delete(photo_id: int, key: bytes = Depends(auth.require_key)):
-    photos.delete_photo(photo_id)
+def delete(photo_id: int, session: _Session = Depends(auth.require_session)):
+    photos.delete_photo(session, photo_id)
     return _redirect("/")

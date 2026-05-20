@@ -15,7 +15,13 @@
 </section>
 
 <section>
-  <h2>{{ photos | length }} photo{{ '' if photos|length == 1 else 's' }}</h2>
+  <div class="gallery-head">
+    <h2>
+      {{ total }} photo{{ '' if total == 1 else 's' }}
+      {% if pages > 1 %}<span class="muted">— page {{ page }} of {{ pages }}</span>{% endif %}
+    </h2>
+  </div>
+
   {% if not photos %}
     <p class="muted">Your vault is empty.</p>
   {% else %}
@@ -23,7 +29,8 @@
       {% for p in photos %}
         <figure class="tile">
           <a href="/photo/{{ p.id }}" target="_blank" rel="noopener">
-            <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy">
+            <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy" decoding="async"
+                 width="320" height="180">
           </a>
           <figcaption>
             <span class="name" title="{{ p.name }}">{{ p.name }}</span>
@@ -35,6 +42,26 @@
         </figure>
       {% endfor %}
     </div>
+
+    {% if pages > 1 %}
+      <nav class="pager">
+        {% if page > 1 %}
+          <a href="?page=1">« First</a>
+          <a href="?page={{ page - 1 }}">‹ Prev</a>
+        {% else %}
+          <span class="muted">« First</span>
+          <span class="muted">‹ Prev</span>
+        {% endif %}
+        <span class="muted">{{ page }} / {{ pages }}</span>
+        {% if page < pages %}
+          <a href="?page={{ page + 1 }}">Next ›</a>
+          <a href="?page={{ pages }}">Last »</a>
+        {% else %}
+          <span class="muted">Next ›</span>
+          <span class="muted">Last »</span>
+        {% endif %}
+      </nav>
+    {% endif %}
   {% endif %}
 </section>
 {% endblock %}

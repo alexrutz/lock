@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS photos (
     thumb_nonce BLOB NOT NULL,
     uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_photos_uploaded
+    ON photos (uploaded_at DESC, id DESC);
 """
 
 

@@ -13,7 +13,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from . import crypto
 from .config import SESSION_COOKIE, SIGNING_KEY, VAULT_ISSUER
 from .db import get_conn, vault_initialized
-from .sessions import store
+from .sessions import _Session, store
 
 _hasher = PasswordHasher()
 _serializer = URLSafeSerializer(SIGNING_KEY, salt="lock-session")
@@ -30,21 +30,26 @@ def _unsign(token: str) -> str | None:
         return None
 
 
-def read_session_key(request: Request) -> bytes | None:
+def read_session(request: Request) -> _Session | None:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
     sid = _unsign(token)
     if not sid:
         return None
-    return store.get_key(sid)
+    return store.get_session(sid)
 
 
-def require_key(request: Request) -> bytes:
-    key = read_session_key(request)
-    if key is None:
+def read_session_key(request: Request) -> bytes | None:
+    s = read_session(request)
+    return None if s is None else s.master_key
+
+
+def require_session(request: Request) -> _Session:
+    s = read_session(request)
+    if s is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    return key
+    return s
 
 
 def make_session_cookie(master_key: bytes) -> tuple[str, str]:

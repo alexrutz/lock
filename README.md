@@ -48,6 +48,9 @@ Open <http://127.0.0.1:8000/>.
 | `LOCK_SESSION_TTL`  | `1800` (seconds)     | Idle timeout                     |
 | `LOCK_MAX_UPLOAD`   | `52428800` (50 MiB)  | Per-file upload cap              |
 | `LOCK_ISSUER`       | `Lock Vault`         | Issuer label shown in TOTP app   |
+| `LOCK_PAGE_SIZE`    | `60`                 | Photos per gallery page          |
+| `LOCK_THUMB_CACHE`  | `512`                | In-memory decrypted thumbnails   |
+| `LOCK_NAME_CACHE`   | `10000`              | In-memory decrypted filenames    |
 
 ## Security notes
 

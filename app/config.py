@@ -33,3 +33,7 @@ else:
 VAULT_ISSUER = os.environ.get("LOCK_ISSUER", "Lock Vault")
 MAX_UPLOAD_BYTES = int(os.environ.get("LOCK_MAX_UPLOAD", str(50 * 1024 * 1024)))
 THUMBNAIL_SIZE = (320, 320)
+
+GALLERY_PAGE_SIZE = int(os.environ.get("LOCK_PAGE_SIZE", "60"))
+THUMB_CACHE_ENTRIES = int(os.environ.get("LOCK_THUMB_CACHE", "512"))
+NAME_CACHE_ENTRIES = int(os.environ.get("LOCK_NAME_CACHE", "10000"))
