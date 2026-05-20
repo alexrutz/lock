@@ -35,10 +35,12 @@
 
   // ---------- per-tile wiring ----------
   const tiles = [...document.querySelectorAll(".tile")];
+  const tileById = new Map(tiles.map((t) => [Number(t.dataset.photoId), t]));
   const pagePhotos = tiles.map((t) => ({
     id: Number(t.dataset.photoId),
     name: t.dataset.photoName,
     hidden: t.dataset.hidden === "1",
+    rating: Number(t.dataset.rating) || 0,
   }));
 
   tiles.forEach((tile) => {
@@ -61,7 +63,8 @@
     const link = tile.querySelector(".tile-image-link");
     link.addEventListener("click", (e) => {
       e.preventDefault();
-      openViewer([{ id, name: tile.dataset.photoName, hidden: tile.dataset.hidden === "1" }], 0);
+      const idx = pagePhotos.findIndex((p) => p.id === id);
+      openViewer(pagePhotos, idx >= 0 ? idx : 0);
     });
 
     wireStars(tile, id);
@@ -81,6 +84,38 @@
       // appear or disappear from the page).
       window.location.reload();
     });
+  }
+
+  // Keep tile DOM, pagePhotos entry, and viewer stars in sync. Called
+  // from any place that changes a rating (tile stars, viewer stars,
+  // keyboard shortcut). The actual POST goes through wireStars / viewer
+  // handlers; this is the local-state side only.
+  function applyRatingLocally(id, rating) {
+    const tile = tileById.get(id);
+    if (tile) {
+      tile.dataset.rating = String(rating);
+      tile.querySelectorAll(".star").forEach((s) => {
+        const v = parseInt(s.dataset.value, 10);
+        if (v === 0) return;
+        s.classList.toggle("filled", v <= rating);
+      });
+    }
+    const entry = pagePhotos.find((p) => p.id === id);
+    if (entry) entry.rating = rating;
+    // If this is the photo currently in the viewer, repaint viewer stars.
+    if (viewerHide.dataset.photoId === String(id)) paintViewerStars(rating);
+  }
+
+  async function postRating(id, rating) {
+    const fd = new FormData();
+    fd.append("rating", String(rating));
+    const res = await fetch(`/photo/${id}/rate`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: fd,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   }
 
   async function postHide(id, hidden) {
@@ -192,6 +227,33 @@
   const viewerPrev = document.getElementById("viewer-prev");
   const viewerNext = document.getElementById("viewer-next");
   const viewerHide = document.getElementById("viewer-hide");
+  const viewerRating = document.getElementById("viewer-rating");
+
+  function paintViewerStars(rating) {
+    viewerRating.querySelectorAll(".vstar").forEach((s) => {
+      const v = parseInt(s.dataset.value, 10);
+      if (v === 0) return;  // skip the clear-button
+      s.classList.toggle("filled", v <= rating);
+    });
+  }
+
+  viewerRating.querySelectorAll(".vstar").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const id = Number(viewerHide.dataset.photoId);
+      if (!id) return;
+      const value = parseInt(b.dataset.value, 10);
+      const tile = tileById.get(id);
+      const previous = tile ? (Number(tile.dataset.rating) || 0) : 0;
+      applyRatingLocally(id, value);  // optimistic — feels instant
+      try {
+        const json = await postRating(id, value);
+        if (json.rating !== value) applyRatingLocally(id, json.rating);
+      } catch (err) {
+        console.error(err);
+        applyRatingLocally(id, previous);
+      }
+    });
+  });
 
   // Navigation state. "single" steps through the rendered page,
   // "random" replaces the current photo with a fresh random pick on
@@ -236,11 +298,14 @@
       viewerHide.textContent = cur && cur.hidden ? "Unhide" : "Hide";
       viewerHide.dataset.photoId = cur ? String(cur.id) : "";
       viewerHide.dataset.hidden = cur && cur.hidden ? "1" : "0";
+      viewerRating.hidden = false;
+      paintViewerStars(cur ? (cur.rating || 0) : 0);
     } else {
       viewerCaption.textContent = `${n} photo${n === 1 ? "" : "s"}`;
       viewerPrev.hidden = true;
       viewerNext.hidden = true;
       viewerHide.hidden = true;
+      viewerRating.hidden = true;
     }
   }
 
@@ -295,6 +360,20 @@
     if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); stepViewer(-1); }
     else if (e.key === "ArrowRight") { e.preventDefault(); stepViewer(1); }
+    else if (/^[0-5]$/.test(e.key) && !viewerRating.hidden && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // 0 clears, 1..5 set the rating. Mirrors the visible star row.
+      e.preventDefault();
+      const id = Number(viewerHide.dataset.photoId);
+      if (!id) return;
+      const value = parseInt(e.key, 10);
+      const tile = tileById.get(id);
+      const previous = tile ? (Number(tile.dataset.rating) || 0) : 0;
+      applyRatingLocally(id, value);
+      postRating(id, value).catch((err) => {
+        console.error(err);
+        applyRatingLocally(id, previous);
+      });
+    }
   });
 
   // ---------- rating / tags (unchanged API) ----------
@@ -302,23 +381,15 @@
     tile.querySelectorAll(".star").forEach((b) =>
       b.addEventListener("click", async () => {
         const value = parseInt(b.dataset.value, 10);
-        const fd = new FormData();
-        fd.append("rating", value);
+        const previous = Number(tile.dataset.rating) || 0;
+        applyRatingLocally(id, value);  // optimistic
         try {
-          const res = await fetch(`/photo/${id}/rate`, {
-            method: "POST",
-            headers: { Accept: "application/json" },
-            body: fd,
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json();
-          tile.querySelectorAll(".star").forEach((s) => {
-            const v = parseInt(s.dataset.value, 10);
-            if (v === 0) return;
-            s.classList.toggle("filled", v <= json.rating);
-          });
-          tile.dataset.rating = String(json.rating);
-        } catch (err) { console.error(err); }
+          const json = await postRating(id, value);
+          if (json.rating !== value) applyRatingLocally(id, json.rating);
+        } catch (err) {
+          console.error(err);
+          applyRatingLocally(id, previous);  // revert on failure
+        }
       })
     );
   }

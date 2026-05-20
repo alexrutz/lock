@@ -472,14 +472,42 @@ code {
 .viewer[hidden] { display: none; }
 .viewer-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 14px;
   color: var(--text);
   background: rgba(0, 0, 0, 0.4);
   font-size: 14px;
 }
+
+.viewer-rating {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.viewer-rating[hidden] { display: none; }
+.viewer-rating .vstar {
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 28px;
+  line-height: 1;
+  padding: 6px 8px;
+  min-width: 40px;
+  min-height: 40px;
+  cursor: pointer;
+  transition: color 0.08s, transform 0.08s;
+}
+.viewer-rating .vstar:hover { color: var(--warn); transform: scale(1.15); }
+.viewer-rating .vstar.filled { color: var(--warn); }
+.viewer-rating .vstar-clear {
+  font-size: 22px;
+  margin-left: 6px;
+  color: rgba(255, 255, 255, 0.4);
+}
+.viewer-rating .vstar-clear:hover { color: var(--danger); }
 .viewer-caption {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -585,4 +613,7 @@ code {
   .select-box span { width: 26px; height: 26px; }
   .tag-chip { font-size: 13px; padding: 4px 6px 4px 10px; }
   .tag-add input { font-size: 13px; padding: 4px 10px; }
+
+  .viewer-rating .vstar { font-size: 30px; padding: 8px 6px; min-width: 44px; min-height: 44px; }
+  .viewer-rating .vstar-clear { font-size: 24px; }
 }
