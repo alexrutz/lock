@@ -5,9 +5,23 @@
   <button type="submit" class="link">Lock</button>
 </form>
 {% endblock %}
+{% set filters_active = sort != 'newest' or min_rating > 0 or active_tag or show_hidden %}
+{% set filter_summary %}
+  {% if filters_active %}
+    {% set parts = [] %}
+    {% if sort != 'newest' %}{% set _ = parts.append(sort) %}{% endif %}
+    {% if min_rating > 0 %}{% set _ = parts.append('≥ ' ~ ('★' * min_rating)) %}{% endif %}
+    {% if active_tag %}
+      {% for t in all_tags %}{% if t.id == active_tag %}{% set _ = parts.append(t.name) %}{% endif %}{% endfor %}
+    {% endif %}
+    {% if show_hidden %}{% set _ = parts.append('show hidden') %}{% endif %}
+    ({{ parts | join(', ') }})
+  {% endif %}
+{% endset %}
+
 {% block content %}
-<section class="card" id="uploader">
-  <h1>Upload photos</h1>
+<details class="card collapsible" id="uploader">
+  <summary><span>Upload photos</span></summary>
 
   <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
     <label for="upload-input" class="dropzone" id="dropzone">
@@ -23,9 +37,10 @@
 
   <div id="upload-summary" class="upload-summary" hidden></div>
   <ol id="upload-list" class="upload-list"></ol>
-</section>
+</details>
 
-<section class="filter-bar">
+<details class="filter-bar collapsible" {% if filters_active %}open{% endif %}>
+  <summary><span>Filters &amp; sort {{ filter_summary }}</span></summary>
   <form method="get" action="/" class="filter-form">
     <label>Sort
       <select name="sort" onchange="this.form.submit()">
@@ -59,11 +74,11 @@
              onchange="this.form.submit()">
       <span>Show hidden</span>
     </label>
-    {% if sort != 'newest' or min_rating > 0 or active_tag or show_hidden %}
+    {% if filters_active %}
       <a class="clear" href="/">Clear filters</a>
     {% endif %}
   </form>
-</section>
+</details>
 
 <div id="action-bar" class="action-bar" hidden>
   <span id="sel-count" class="sel-count">0 selected</span>
@@ -89,6 +104,42 @@
       </form>
     </div>
   </div>
+
+  {% if pages > 1 %}
+    {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% endset %}
+    <nav class="pager pager-top">
+      {% if page > 1 %}
+        <a href="?page=1&{{ qs }}" aria-label="First page">«</a>
+        <a href="?page={{ [page - 10, 1] | max }}&{{ qs }}" aria-label="Back 10 pages">‹‹</a>
+        <a href="?page={{ page - 1 }}&{{ qs }}" aria-label="Previous page">‹</a>
+      {% else %}
+        <span class="muted">«</span>
+        <span class="muted">‹‹</span>
+        <span class="muted">‹</span>
+      {% endif %}
+
+      <form method="get" action="/" class="page-jump">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="min_rating" value="{{ min_rating }}">
+        {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
+        {% if show_hidden %}<input type="hidden" name="show_hidden" value="1">{% endif %}
+        <input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}"
+               inputmode="numeric" aria-label="Go to page"
+               onclick="this.select()">
+        <span class="muted">/ {{ pages }}</span>
+      </form>
+
+      {% if page < pages %}
+        <a href="?page={{ page + 1 }}&{{ qs }}" aria-label="Next page">›</a>
+        <a href="?page={{ [page + 10, pages] | min }}&{{ qs }}" aria-label="Forward 10 pages">››</a>
+        <a href="?page={{ pages }}&{{ qs }}" aria-label="Last page">»</a>
+      {% else %}
+        <span class="muted">›</span>
+        <span class="muted">››</span>
+        <span class="muted">»</span>
+      {% endif %}
+    </nav>
+  {% endif %}
 
   {% if not photos %}
     <p class="muted">
@@ -154,22 +205,17 @@
     </div>
 
     {% if pages > 1 %}
-      <nav class="pager">
-        {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% endset %}
+      <nav class="pager pager-bottom">
         {% if page > 1 %}
-          <a href="?page=1&{{ qs }}">« First</a>
           <a href="?page={{ page - 1 }}&{{ qs }}">‹ Prev</a>
         {% else %}
-          <span class="muted">« First</span>
           <span class="muted">‹ Prev</span>
         {% endif %}
         <span class="muted">{{ page }} / {{ pages }}</span>
         {% if page < pages %}
           <a href="?page={{ page + 1 }}&{{ qs }}">Next ›</a>
-          <a href="?page={{ pages }}&{{ qs }}">Last »</a>
         {% else %}
           <span class="muted">Next ›</span>
-          <span class="muted">Last »</span>
         {% endif %}
       </nav>
     {% endif %}
