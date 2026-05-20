@@ -17,11 +17,21 @@ app (Google Authenticator, Authy, 1Password, etc.).
 
 ## Run it
 
+Requires Python 3.10 or newer. On Debian/Ubuntu you may also need
+`sudo apt install python3-venv`.
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 uvicorn app.main:app --reload
 ```
+
+The `source` step is what makes `pip` and `uvicorn` use the venv — verify
+with `which pip` (should point inside `.venv/`). If `pip install` fails
+with `Package 'lock' requires a different Python`, your venv is using a
+too-old interpreter; recreate it with `python3.10 -m venv .venv` (or
+newer).
 
 Open <http://127.0.0.1:8000/>.
 
