@@ -64,7 +64,10 @@
     link.addEventListener("click", (e) => {
       e.preventDefault();
       const idx = pagePhotos.findIndex((p) => p.id === id);
-      openViewer(pagePhotos, idx >= 0 ? idx : 0);
+      const start = idx >= 0 ? idx : 0;
+      // Render only the clicked photo, but remember its index so
+      // Next/Prev step from the right position (not always from 0).
+      openViewer([pagePhotos[start]], start);
     });
 
     wireStars(tile, id);
