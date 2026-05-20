@@ -217,6 +217,29 @@ def delete(photo_id: int, session: _Session = Depends(auth.require_session)):
     return _redirect("/")
 
 
+@app.get("/api/random")
+def api_random(
+    min_rating: int = 0,
+    tag: str | None = None,
+    show_hidden: bool = False,
+    session: _Session = Depends(auth.require_session),
+):
+    tag_id: int | None = None
+    if tag and tag.isdigit():
+        tag_id = int(tag)
+    min_rating = max(0, min(5, min_rating))
+
+    photo = photos.random_photo(
+        session,
+        min_rating=min_rating,
+        filter_tag_id=tag_id,
+        include_hidden=show_hidden,
+    )
+    if photo is None:
+        raise HTTPException(status_code=404, detail="No photos match")
+    return {"id": photo.id, "name": photo.name, "hidden": photo.hidden}
+
+
 @app.post("/photo/{photo_id}/hide")
 def hide(
     request: Request,

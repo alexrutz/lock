@@ -81,6 +81,7 @@
       {% if pages > 1 %}<span class="muted">— page {{ page }} of {{ pages }}</span>{% endif %}
     </h2>
     <div class="head-actions">
+      <button type="button" id="btn-random" class="link">Random</button>
       <button type="button" id="btn-select-page" class="link">Select page</button>
       <form method="post" action="/export" class="inline" id="export-all-form">
         <input type="hidden" name="all" value="1">

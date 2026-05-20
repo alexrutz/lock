@@ -131,6 +131,42 @@
     refreshActionBar();
   });
 
+  const btnRandom = document.getElementById("btn-random");
+  if (btnRandom) {
+    btnRandom.addEventListener("click", async () => {
+      const photo = await fetchRandom();
+      if (photo) openViewer([photo], 0, /*multi=*/false, /*random=*/true);
+    });
+  }
+
+  function currentFilterQS() {
+    const q = new URLSearchParams(window.location.search);
+    const out = new URLSearchParams();
+    for (const k of ["min_rating", "tag", "show_hidden"]) {
+      const v = q.get(k);
+      if (v) out.set(k, v);
+    }
+    return out.toString();
+  }
+
+  async function fetchRandom() {
+    const qs = currentFilterQS();
+    try {
+      const res = await fetch(`/api/random${qs ? "?" + qs : ""}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (res.status === 404) {
+        alert("No photos match the current filters.");
+        return null;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }
+
   btnSelectPage.addEventListener("click", () => {
     const allChecked = tiles.every((t) => t.classList.contains("selected"));
     tiles.forEach((t) => {
@@ -157,13 +193,14 @@
   const viewerNext = document.getElementById("viewer-next");
   const viewerHide = document.getElementById("viewer-hide");
 
-  // Navigation state for *single*-image viewer mode:
-  //   pagePhotos is the current page in render order; index points into it.
-  let viewerMode = "single"; // "single" | "multi"
+  // Navigation state. "single" steps through the rendered page,
+  // "random" replaces the current photo with a fresh random pick on
+  // each step, "multi" has no stepping.
+  let viewerMode = "single"; // "single" | "multi" | "random"
   let viewerIndex = 0;
 
-  function openViewer(items, index, multi = false) {
-    viewerMode = multi ? "multi" : "single";
+  function openViewer(items, index, multi = false, random = false) {
+    viewerMode = random ? "random" : (multi ? "multi" : "single");
     viewerIndex = index;
     renderViewer(items);
     viewer.hidden = false;
@@ -188,10 +225,11 @@
       cell.appendChild(cap);
       viewerGrid.appendChild(cell);
     }
-    if (viewerMode === "single") {
+    if (viewerMode === "single" || viewerMode === "random") {
       const cur = items[0];
-      viewerCaption.textContent =
-        `${viewerIndex + 1} / ${pagePhotos.length}  ·  ${cur ? cur.name : ""}`;
+      viewerCaption.textContent = viewerMode === "random"
+        ? `random  ·  ${cur ? cur.name : ""}`
+        : `${viewerIndex + 1} / ${pagePhotos.length}  ·  ${cur ? cur.name : ""}`;
       viewerPrev.hidden = false;
       viewerNext.hidden = false;
       viewerHide.hidden = false;
@@ -212,7 +250,12 @@
     document.body.style.overflow = "";
   }
 
-  function stepViewer(delta) {
+  async function stepViewer(delta) {
+    if (viewerMode === "random") {
+      const photo = await fetchRandom();
+      if (photo) renderViewer([photo]);
+      return;
+    }
     if (viewerMode !== "single" || !pagePhotos.length) return;
     viewerIndex = (viewerIndex + delta + pagePhotos.length) % pagePhotos.length;
     renderViewer([pagePhotos[viewerIndex]]);
@@ -227,8 +270,16 @@
     const currentlyHidden = viewerHide.dataset.hidden === "1";
     try {
       await postHide(id, !currentlyHidden);
-      // Closing + reloading is the safest behavior — the photo may now
-      // be excluded from the gallery (depending on show_hidden).
+      if (viewerMode === "random") {
+        // Stay in the viewer — just roll the next random photo. Don't
+        // bother reloading the gallery, that interrupts the flow.
+        const next = await fetchRandom();
+        if (next) renderViewer([next]);
+        else closeViewer();
+        return;
+      }
+      // Single-mode: the photo may now be excluded from the current
+      // page; close + reload is the simplest correct outcome.
       closeViewer();
       window.location.reload();
     } catch (err) { console.error(err); }

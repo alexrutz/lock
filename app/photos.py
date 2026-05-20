@@ -186,6 +186,49 @@ def list_photos_page(
     return out
 
 
+def random_photo(
+    session: _Session,
+    *,
+    min_rating: int = 0,
+    filter_tag_id: int | None = None,
+    include_hidden: bool = False,
+) -> PhotoMeta | None:
+    where_sql, where_params = _filter_clauses(min_rating, filter_tag_id, include_hidden)
+    with get_conn() as conn:
+        row = conn.execute(
+            f"""SELECT id, original_name_ct, name_nonce, mime, size,
+                       uploaded_at, rating, hidden
+                FROM photos {where_sql}
+                ORDER BY RANDOM() LIMIT 1""",
+            where_params,
+        ).fetchone()
+    if row is None:
+        return None
+
+    pid = row["id"]
+    cached = session.name_cache.get(pid)
+    if cached is not None:
+        name = cached  # type: ignore[assignment]
+    else:
+        try:
+            name = crypto.decrypt(
+                session.master_key, row["name_nonce"], row["original_name_ct"]
+            ).decode("utf-8")
+        except Exception:
+            name = f"photo-{pid}"
+        session.name_cache.put(pid, name)
+
+    return PhotoMeta(
+        id=pid,
+        name=name,  # type: ignore[arg-type]
+        mime=row["mime"],
+        size=row["size"],
+        uploaded_at=row["uploaded_at"],
+        rating=row["rating"] or 0,
+        hidden=bool(row["hidden"]),
+    )
+
+
 def set_hidden(photo_id: int, hidden: bool) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
