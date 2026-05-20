@@ -39,7 +39,7 @@ def index(
     page: int = 1,
     sort: str = "newest",
     min_rating: int = 0,
-    tag: int | None = None,
+    tag: str | None = None,
     show_hidden: bool = False,
 ):
     if not vault_initialized():
@@ -54,13 +54,19 @@ def index(
     if page < 1:
         page = 1
 
+    # The filter form always submits `tag=` even when "all" is selected,
+    # so we tolerate empty / non-numeric values here.
+    tag_id: int | None = None
+    if tag and tag.isdigit():
+        tag_id = int(tag)
+
     all_tags = tagmod.list_all_tags(session)
     valid_tag_ids = {t["id"] for t in all_tags}
-    if tag is not None and tag not in valid_tag_ids:
-        tag = None
+    if tag_id is not None and tag_id not in valid_tag_ids:
+        tag_id = None
 
     total = photos.count_photos(
-        min_rating=min_rating, filter_tag_id=tag, include_hidden=show_hidden,
+        min_rating=min_rating, filter_tag_id=tag_id, include_hidden=show_hidden,
     )
     pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
     if page > pages:
@@ -69,7 +75,7 @@ def index(
     items = photos.list_photos_page(
         session,
         limit=GALLERY_PAGE_SIZE, offset=offset,
-        sort=sort, min_rating=min_rating, filter_tag_id=tag,
+        sort=sort, min_rating=min_rating, filter_tag_id=tag_id,
         include_hidden=show_hidden,
     )
 
@@ -83,7 +89,7 @@ def index(
             "page_size": GALLERY_PAGE_SIZE,
             "sort": sort,
             "min_rating": min_rating,
-            "active_tag": tag,
+            "active_tag": tag_id,
             "all_tags": all_tags,
             "show_hidden": show_hidden,
         },
