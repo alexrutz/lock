@@ -59,12 +59,28 @@
   </form>
 </section>
 
+<div id="action-bar" class="action-bar" hidden>
+  <span id="sel-count" class="sel-count">0 selected</span>
+  <div class="action-buttons">
+    <button type="button" id="btn-preview">Preview</button>
+    <button type="button" id="btn-export-selected">Export selected</button>
+    <button type="button" id="btn-clear-selection" class="link">Clear</button>
+  </div>
+</div>
+
 <section>
   <div class="gallery-head">
     <h2>
       {{ total }} photo{{ '' if total == 1 else 's' }}
       {% if pages > 1 %}<span class="muted">— page {{ page }} of {{ pages }}</span>{% endif %}
     </h2>
+    <div class="head-actions">
+      <button type="button" id="btn-select-page" class="link">Select page</button>
+      <form method="post" action="/export" class="inline" id="export-all-form">
+        <input type="hidden" name="all" value="1">
+        <button type="submit" class="link">Export all</button>
+      </form>
+    </div>
   </div>
 
   {% if not photos %}
@@ -78,10 +94,13 @@
   {% else %}
     <div class="grid">
       {% for p in photos %}
-        <figure class="tile" data-photo-id="{{ p.id }}" data-rating="{{ p.rating }}">
-          <a href="/photo/{{ p.id }}" target="_blank" rel="noopener">
-            <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy" decoding="async"
-                 width="320" height="180">
+        <figure class="tile" data-photo-id="{{ p.id }}" data-photo-name="{{ p.name }}" data-rating="{{ p.rating }}">
+          <label class="select-box">
+            <input type="checkbox" class="select-cb" aria-label="Select photo">
+            <span></span>
+          </label>
+          <a href="/photo/{{ p.id }}" class="tile-image-link" target="_blank" rel="noopener">
+            <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy" decoding="async">
           </a>
           <figcaption>
             <div class="row name-row">
@@ -140,6 +159,22 @@
     {% endif %}
   {% endif %}
 </section>
+
+<!-- Hidden form used by JS to POST a list of selected ids for export -->
+<form id="export-selected-form" method="post" action="/export" hidden></form>
+
+<!-- Viewer modal -->
+<div id="viewer" class="viewer" hidden aria-modal="true" role="dialog">
+  <div class="viewer-bar">
+    <span id="viewer-caption" class="viewer-caption"></span>
+    <div class="viewer-controls">
+      <button type="button" id="viewer-prev" class="viewer-btn" aria-label="Previous">‹</button>
+      <button type="button" id="viewer-next" class="viewer-btn" aria-label="Next">›</button>
+      <button type="button" id="viewer-close" class="viewer-btn" aria-label="Close">×</button>
+    </div>
+  </div>
+  <div id="viewer-grid" class="viewer-grid" data-count="0"></div>
+</div>
 
 <script src="/static/upload.js" defer></script>
 <script src="/static/gallery.js" defer></script>

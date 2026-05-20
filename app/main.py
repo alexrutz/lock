@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
 from pathlib import Path
+from stat import S_IFREG
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from stream_zip import ZIP_64, stream_zip
 
 from . import auth, photos, tags as tagmod
 from .config import GALLERY_PAGE_SIZE, SESSION_COOKIE
@@ -227,6 +230,43 @@ def tag_add(
     if _wants_json(request):
         return {"id": photo_id, "tags": photo_tags}
     return _redirect("/")
+
+
+@app.post("/export")
+def export(
+    ids: list[int] = Form(default=[]),
+    all: bool = Form(default=False),
+    session: _Session = Depends(auth.require_session),
+):
+    if all:
+        photo_ids = photos.all_photo_ids()
+    else:
+        photo_ids = ids
+
+    if not photo_ids:
+        raise HTTPException(status_code=400, detail="No photos selected")
+
+    # Hard cap to keep request resource use bounded — adjust via env later
+    # if a single export of >10 000 photos is a real workflow.
+    if len(photo_ids) > 10_000:
+        raise HTTPException(status_code=413, detail="Too many photos in one export")
+
+    now = datetime.now(timezone.utc)
+    perms = S_IFREG | 0o600
+
+    def members():
+        for filename, data in photos.iter_export(session, photo_ids):
+            yield filename, now, perms, ZIP_64, (data,)
+
+    fname = f"lock-export-{now.strftime('%Y%m%d-%H%M%S')}.zip"
+    return StreamingResponse(
+        stream_zip(members()),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @app.post("/photo/{photo_id}/untag")

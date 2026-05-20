@@ -64,6 +64,24 @@ Open <http://127.0.0.1:8000/>.
   filter by minimum rating, filter by tag. The filters are query-string
   driven so links are bookmarkable.
 
+## Viewing and exporting
+
+- Click any thumbnail to open the in-app viewer. Arrow keys / on-screen
+  arrows page through the current view, `Esc` closes it.
+- Select up to 4 photos with the checkboxes and use **Preview** to view
+  them side-by-side in a grid (single / two-up / three / 2×2).
+- **Export selected** packages the selection as a streaming ZIP of
+  decrypted originals. **Export all** dumps the entire vault. The ZIP is
+  built incrementally on the wire — no temp file, no memory spike, works
+  for vaults of any size up to 10 000 photos per request.
+
+## Mobile
+
+The layout is full-width and reflows for narrow viewports: the filter bar
+stacks, the grid uses 140 px columns, touch targets on stars / chips /
+checkboxes are enlarged, and the viewer grid stacks vertically on
+portrait phones.
+
 ## Security notes
 
 - **No password reset.** Lose the password → lose the vault. That is the

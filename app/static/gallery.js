@@ -1,14 +1,210 @@
 (() => {
-  document.querySelectorAll(".tile").forEach((tile) => {
-    const id = tile.dataset.photoId;
+  const SEL_KEY = "lock:selected";
+  const MAX_PREVIEW = 4;
+
+  // ---------- selection state (persists across pagination) ----------
+  function loadSelection() {
+    try {
+      const v = JSON.parse(sessionStorage.getItem(SEL_KEY) || "[]");
+      return new Set(Array.isArray(v) ? v.map(Number) : []);
+    } catch (_) { return new Set(); }
+  }
+  function saveSelection(set) {
+    sessionStorage.setItem(SEL_KEY, JSON.stringify([...set]));
+  }
+  const selection = loadSelection();
+
+  const actionBar = document.getElementById("action-bar");
+  const selCount = document.getElementById("sel-count");
+  const btnPreview = document.getElementById("btn-preview");
+  const btnExportSelected = document.getElementById("btn-export-selected");
+  const btnClear = document.getElementById("btn-clear-selection");
+  const btnSelectPage = document.getElementById("btn-select-page");
+  const exportSelectedForm = document.getElementById("export-selected-form");
+
+  function refreshActionBar() {
+    const n = selection.size;
+    selCount.textContent = `${n} selected`;
+    actionBar.hidden = n === 0;
+    btnPreview.disabled = n === 0;
+    btnPreview.textContent = n > MAX_PREVIEW
+      ? `Preview first ${MAX_PREVIEW}`
+      : "Preview";
+    btnExportSelected.disabled = n === 0;
+  }
+
+  // ---------- per-tile wiring ----------
+  const tiles = [...document.querySelectorAll(".tile")];
+  const pagePhotos = tiles.map((t) => ({
+    id: Number(t.dataset.photoId),
+    name: t.dataset.photoName,
+  }));
+
+  tiles.forEach((tile) => {
+    const id = Number(tile.dataset.photoId);
+    const cb = tile.querySelector(".select-cb");
+
+    if (selection.has(id)) {
+      cb.checked = true;
+      tile.classList.add("selected");
+    }
+
+    cb.addEventListener("change", () => {
+      if (cb.checked) selection.add(id); else selection.delete(id);
+      tile.classList.toggle("selected", cb.checked);
+      saveSelection(selection);
+      refreshActionBar();
+    });
+    // Clicks on the checkbox label shouldn't trigger the tile-image link.
+    tile.querySelector(".select-box").addEventListener("click", (e) => e.stopPropagation());
+
+    const link = tile.querySelector(".tile-image-link");
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      openViewer([{ id, name: tile.dataset.photoName }], 0);
+    });
+
     wireStars(tile, id);
     wireTagRemove(tile, id);
     wireTagAdd(tile, id);
   });
 
+  // ---------- top-level buttons ----------
+  btnPreview.addEventListener("click", () => {
+    const ids = [...selection].slice(0, MAX_PREVIEW);
+    if (!ids.length) return;
+    // Look up names from page tiles; fall back to id-only otherwise.
+    const items = ids.map((id) => {
+      const tile = document.querySelector(`.tile[data-photo-id="${id}"]`);
+      return { id, name: tile ? tile.dataset.photoName : `#${id}` };
+    });
+    openViewer(items, 0, /*multi=*/items.length > 1);
+  });
+
+  btnExportSelected.addEventListener("click", () => {
+    if (!selection.size) return;
+    exportSelectedForm.innerHTML = "";
+    for (const id of selection) {
+      const inp = document.createElement("input");
+      inp.type = "hidden";
+      inp.name = "ids";
+      inp.value = String(id);
+      exportSelectedForm.appendChild(inp);
+    }
+    exportSelectedForm.submit();
+  });
+
+  btnClear.addEventListener("click", () => {
+    selection.clear();
+    saveSelection(selection);
+    document.querySelectorAll(".tile.selected").forEach((t) => {
+      t.classList.remove("selected");
+      const cb = t.querySelector(".select-cb");
+      if (cb) cb.checked = false;
+    });
+    refreshActionBar();
+  });
+
+  btnSelectPage.addEventListener("click", () => {
+    const allChecked = tiles.every((t) => t.classList.contains("selected"));
+    tiles.forEach((t) => {
+      const id = Number(t.dataset.photoId);
+      const cb = t.querySelector(".select-cb");
+      if (allChecked) {
+        selection.delete(id); cb.checked = false; t.classList.remove("selected");
+      } else {
+        selection.add(id); cb.checked = true; t.classList.add("selected");
+      }
+    });
+    saveSelection(selection);
+    refreshActionBar();
+  });
+
+  refreshActionBar();
+
+  // ---------- viewer ----------
+  const viewer = document.getElementById("viewer");
+  const viewerGrid = document.getElementById("viewer-grid");
+  const viewerCaption = document.getElementById("viewer-caption");
+  const viewerClose = document.getElementById("viewer-close");
+  const viewerPrev = document.getElementById("viewer-prev");
+  const viewerNext = document.getElementById("viewer-next");
+
+  // Navigation state for *single*-image viewer mode:
+  //   pagePhotos is the current page in render order; index points into it.
+  let viewerMode = "single"; // "single" | "multi"
+  let viewerIndex = 0;
+
+  function openViewer(items, index, multi = false) {
+    viewerMode = multi ? "multi" : "single";
+    viewerIndex = index;
+    renderViewer(items);
+    viewer.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+
+  function renderViewer(items) {
+    const n = Math.min(items.length, MAX_PREVIEW);
+    viewerGrid.dataset.count = String(n);
+    viewerGrid.innerHTML = "";
+    for (const it of items.slice(0, n)) {
+      const cell = document.createElement("div");
+      cell.className = "viewer-cell";
+      const img = document.createElement("img");
+      img.src = `/photo/${it.id}`;
+      img.alt = it.name || `#${it.id}`;
+      img.draggable = false;
+      cell.appendChild(img);
+      const cap = document.createElement("span");
+      cap.className = "viewer-cell-caption";
+      cap.textContent = it.name || `#${it.id}`;
+      cell.appendChild(cap);
+      viewerGrid.appendChild(cell);
+    }
+    if (viewerMode === "single") {
+      const cur = items[0];
+      viewerCaption.textContent =
+        `${viewerIndex + 1} / ${pagePhotos.length}  ·  ${cur ? cur.name : ""}`;
+      viewerPrev.hidden = false;
+      viewerNext.hidden = false;
+    } else {
+      viewerCaption.textContent = `${n} photo${n === 1 ? "" : "s"}`;
+      viewerPrev.hidden = true;
+      viewerNext.hidden = true;
+    }
+  }
+
+  function closeViewer() {
+    viewer.hidden = true;
+    viewerGrid.innerHTML = "";
+    document.body.style.overflow = "";
+  }
+
+  function stepViewer(delta) {
+    if (viewerMode !== "single" || !pagePhotos.length) return;
+    viewerIndex = (viewerIndex + delta + pagePhotos.length) % pagePhotos.length;
+    renderViewer([pagePhotos[viewerIndex]]);
+  }
+
+  viewerClose.addEventListener("click", closeViewer);
+  viewerPrev.addEventListener("click", () => stepViewer(-1));
+  viewerNext.addEventListener("click", () => stepViewer(1));
+
+  // Click on the dimmed background closes (but not clicks on images).
+  viewer.addEventListener("click", (e) => {
+    if (e.target === viewer || e.target === viewerGrid) closeViewer();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (viewer.hidden) return;
+    if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); stepViewer(-1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); stepViewer(1); }
+  });
+
+  // ---------- rating / tags (unchanged API) ----------
   function wireStars(tile, id) {
-    const buttons = tile.querySelectorAll(".star");
-    buttons.forEach((b) =>
+    tile.querySelectorAll(".star").forEach((b) =>
       b.addEventListener("click", async () => {
         const value = parseInt(b.dataset.value, 10);
         const fd = new FormData();
@@ -21,30 +217,23 @@
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const json = await res.json();
-          paintStars(tile, json.rating);
+          tile.querySelectorAll(".star").forEach((s) => {
+            const v = parseInt(s.dataset.value, 10);
+            if (v === 0) return;
+            s.classList.toggle("filled", v <= json.rating);
+          });
           tile.dataset.rating = String(json.rating);
-        } catch (e) {
-          console.error(e);
-        }
+        } catch (err) { console.error(err); }
       })
     );
-  }
-
-  function paintStars(tile, rating) {
-    tile.querySelectorAll(".star").forEach((s) => {
-      const v = parseInt(s.dataset.value, 10);
-      if (v === 0) return;  // skip the clear-button
-      s.classList.toggle("filled", v <= rating);
-    });
   }
 
   function wireTagRemove(tile, id) {
     tile.querySelectorAll(".tag-chip .tag-remove").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const chip = btn.closest(".tag-chip");
-        const tagId = chip.dataset.tagId;
         const fd = new FormData();
-        fd.append("tag_id", tagId);
+        fd.append("tag_id", chip.dataset.tagId);
         try {
           const res = await fetch(`/photo/${id}/untag`, {
             method: "POST",
@@ -53,9 +242,7 @@
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           chip.remove();
-        } catch (e) {
-          console.error(e);
-        }
+        } catch (err) { console.error(err); }
       });
     });
   }
@@ -84,8 +271,8 @@
         const json = await res.json();
         renderTags(tile, id, json.tags);
         input.value = "";
-      } catch (e) {
-        input.setCustomValidity(e.message);
+      } catch (err) {
+        input.setCustomValidity(err.message);
         input.reportValidity();
         setTimeout(() => input.setCustomValidity(""), 2000);
       }

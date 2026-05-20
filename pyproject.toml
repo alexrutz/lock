@@ -18,6 +18,7 @@ dependencies = [
     "qrcode[pil]>=7.4",
     "itsdangerous>=2.1",
     "Pillow>=10.2",
+    "stream-zip>=0.0.83",
 ]
 
 [tool.setuptools.packages.find]

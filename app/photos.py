@@ -244,6 +244,95 @@ def load_full_stream(session: _Session, photo_id: int) -> tuple[Iterator[bytes],
     return chunks(), mime, size
 
 
+def all_photo_ids() -> list[int]:
+    with get_conn() as conn:
+        return [r["id"] for r in conn.execute(
+            "SELECT id FROM photos ORDER BY uploaded_at DESC, id DESC"
+        ).fetchall()]
+
+
+_FORBIDDEN_FILENAME_CHARS = '/\\:*?"<>|\0'
+
+
+def _safe_filename(name: str) -> str:
+    base = name.replace("\\", "/").split("/")[-1]
+    base = "".join("_" if c in _FORBIDDEN_FILENAME_CHARS else c for c in base)
+    base = base.lstrip(".") or "photo"
+    return base[:200]
+
+
+def _dedup_filenames(names: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    out: list[str] = []
+    for n in names:
+        if n not in seen:
+            seen[n] = 1
+            out.append(n)
+            continue
+        seen[n] += 1
+        if "." in n:
+            stem, ext = n.rsplit(".", 1)
+            out.append(f"{stem} ({seen[n]}).{ext}")
+        else:
+            out.append(f"{n} ({seen[n]})")
+    return out
+
+
+def iter_export(session: _Session, photo_ids: list[int]):
+    """Yield (filename, decrypted_bytes) for each requested photo, in order.
+
+    Decryption happens lazily as the consumer pulls — combined with
+    stream-zip this lets us serve a multi-GB export without ever holding
+    more than one photo in memory.
+    """
+    if not photo_ids:
+        return
+
+    placeholders = ",".join("?" * len(photo_ids))
+    with get_conn() as conn:
+        rows = {r["id"]: r for r in conn.execute(
+            f"""SELECT id, original_name_ct, name_nonce, mime,
+                       wrapped_key, wrap_nonce, nonce
+                FROM photos WHERE id IN ({placeholders})""",
+            photo_ids,
+        ).fetchall()}
+
+    raw_names: list[str] = []
+    ordered_rows = []
+    for pid in photo_ids:
+        r = rows.get(pid)
+        if r is None:
+            continue
+        cached = session.name_cache.get(pid)
+        if cached is not None:
+            name = cached  # type: ignore[assignment]
+        else:
+            try:
+                name = crypto.decrypt(
+                    session.master_key, r["name_nonce"], r["original_name_ct"]
+                ).decode("utf-8")
+            except Exception:
+                name = f"photo-{pid}"
+            session.name_cache.put(pid, name)
+        raw_names.append(_safe_filename(name))  # type: ignore[arg-type]
+        ordered_rows.append(r)
+
+    final_names = _dedup_filenames(raw_names)
+
+    for name, r in zip(final_names, ordered_rows):
+        path = PHOTO_DIR / f"{r['id']}.bin"
+        if not path.exists():
+            continue
+        data_key = crypto.unwrap_data_key(
+            session.master_key, r["wrap_nonce"], r["wrapped_key"]
+        )
+        try:
+            plaintext = crypto.decrypt(data_key, r["nonce"], path.read_bytes())
+        except Exception:
+            continue
+        yield name, plaintext
+
+
 def delete_photo(session: _Session, photo_id: int) -> None:
     with get_conn() as conn:
         # Find every tag the photo holds before we delete, so we can
