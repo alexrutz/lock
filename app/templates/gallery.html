@@ -6,13 +6,26 @@
 </form>
 {% endblock %}
 {% block content %}
-<section class="card">
+<section class="card" id="uploader">
   <h1>Upload photos</h1>
-  <form method="post" action="/upload" enctype="multipart/form-data">
-    <input type="file" name="file" accept="image/*" required>
-    <button type="submit">Encrypt &amp; store</button>
+
+  <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
+    <label for="upload-input" class="dropzone" id="dropzone">
+      <span class="dz-main">Drop photos here</span>
+      <span class="dz-sub">or click to choose multiple files</span>
+      <input id="upload-input" type="file" name="files" accept="image/*" multiple required>
+    </label>
+    <noscript>
+      <p class="muted">JavaScript disabled — files will upload sequentially in one request.</p>
+      <button type="submit">Encrypt &amp; store</button>
+    </noscript>
   </form>
+
+  <div id="upload-summary" class="upload-summary" hidden></div>
+  <ol id="upload-list" class="upload-list"></ol>
 </section>
+
+<script src="/static/upload.js" defer></script>
 
 <section>
   <div class="gallery-head">

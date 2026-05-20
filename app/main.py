@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -125,8 +125,30 @@ def logout(request: Request):
 
 
 @app.post("/upload")
-async def upload(file: UploadFile, session: _Session = Depends(auth.require_session)):
-    photos.save_upload(session, file)
+def upload(
+    request: Request,
+    files: list[UploadFile],
+    session: _Session = Depends(auth.require_session),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    results: list[dict] = []
+    for f in files:
+        try:
+            pid = photos.save_upload(session, f)
+            results.append({"name": f.filename, "id": pid, "ok": True})
+        except HTTPException as e:
+            results.append({"name": f.filename, "ok": False, "error": e.detail})
+        except Exception as e:  # noqa: BLE001 — never let one bad file kill the batch
+            results.append({"name": f.filename, "ok": False, "error": str(e)})
+
+    wants_json = "application/json" in (request.headers.get("accept") or "")
+    if wants_json:
+        ok = sum(1 for r in results if r["ok"])
+        return JSONResponse(
+            {"results": results, "ok": ok, "failed": len(results) - ok}
+        )
     return _redirect("/")
 
 
