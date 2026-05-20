@@ -21,5 +21,8 @@ dependencies = [
     "stream-zip>=0.0.83",
 ]
 
+[project.scripts]
+lock = "app.__main__:main"
+
 [tool.setuptools.packages.find]
 include = ["app*"]

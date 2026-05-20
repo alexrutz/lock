@@ -24,14 +24,29 @@ Requires Python 3.10 or newer. On Debian/Ubuntu you may also need
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-uvicorn app.main:app --reload
+python -m app           # or: lock
 ```
 
-The `source` step is what makes `pip` and `uvicorn` use the venv — verify
+That launches on `0.0.0.0:8000` so the vault is reachable from other
+devices on your network (phone, laptop). Override with env vars when
+you want loopback-only or a different port:
+
+```bash
+LOCK_HOST=127.0.0.1 LOCK_PORT=9000 python -m app
+```
+
+The `source` step is what makes `pip` and `python` use the venv — verify
 with `which pip` (should point inside `.venv/`). If `pip install` fails
 with `Package 'lock' requires a different Python`, your venv is using a
 too-old interpreter; recreate it with `python3.10 -m venv .venv` (or
 newer).
+
+> **Heads-up about plain HTTP on a LAN**: binding to `0.0.0.0` means
+> everyone on your Wi-Fi can reach the server. Without TLS in front,
+> your master password and TOTP code are visible to anyone sniffing the
+> network. For trusted home networks this is usually fine; for anything
+> else put Caddy / nginx / Tailscale in front (see *Security notes*
+> below).
 
 Open <http://127.0.0.1:8000/>.
 
