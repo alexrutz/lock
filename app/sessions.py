@@ -41,6 +41,8 @@ class _Session:
     expires_at: float
     thumb_cache: _LRU = field(default_factory=lambda: _LRU(THUMB_CACHE_ENTRIES))
     name_cache: _LRU = field(default_factory=lambda: _LRU(NAME_CACHE_ENTRIES))
+    # Tag names — typically a few dozen entries, small strings.
+    tag_name_cache: _LRU = field(default_factory=lambda: _LRU(2048))
 
 
 class SessionStore:

@@ -25,7 +25,39 @@
   <ol id="upload-list" class="upload-list"></ol>
 </section>
 
-<script src="/static/upload.js" defer></script>
+<section class="filter-bar">
+  <form method="get" action="/" class="filter-form">
+    <label>Sort
+      <select name="sort" onchange="this.form.submit()">
+        <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest first</option>
+        <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>Oldest first</option>
+        <option value="rating" {% if sort == 'rating' %}selected{% endif %}>Top rated</option>
+      </select>
+    </label>
+    <label>Min rating
+      <select name="min_rating" onchange="this.form.submit()">
+        {% for r in [0, 1, 2, 3, 4, 5] %}
+          <option value="{{ r }}" {% if min_rating == r %}selected{% endif %}>
+            {% if r == 0 %}any{% else %}{{ '★' * r }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tag
+      <select name="tag" onchange="this.form.submit()">
+        <option value="">all</option>
+        {% for t in all_tags %}
+          <option value="{{ t.id }}" {% if active_tag == t.id %}selected{% endif %}>
+            {{ t.name }} ({{ t.uses }})
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if sort != 'newest' or min_rating > 0 or active_tag %}
+      <a class="clear" href="/">Clear filters</a>
+    {% endif %}
+  </form>
+</section>
 
 <section>
   <div class="gallery-head">
@@ -36,21 +68,51 @@
   </div>
 
   {% if not photos %}
-    <p class="muted">Your vault is empty.</p>
+    <p class="muted">
+      {% if active_tag or min_rating > 0 %}
+        No photos match the current filters.
+      {% else %}
+        Your vault is empty.
+      {% endif %}
+    </p>
   {% else %}
     <div class="grid">
       {% for p in photos %}
-        <figure class="tile">
+        <figure class="tile" data-photo-id="{{ p.id }}" data-rating="{{ p.rating }}">
           <a href="/photo/{{ p.id }}" target="_blank" rel="noopener">
             <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy" decoding="async"
                  width="320" height="180">
           </a>
           <figcaption>
-            <span class="name" title="{{ p.name }}">{{ p.name }}</span>
-            <form method="post" action="/photo/{{ p.id }}/delete"
-                  onsubmit="return confirm('Delete {{ p.name }}?')">
-              <button type="submit" class="link danger">Delete</button>
-            </form>
+            <div class="row name-row">
+              <span class="name" title="{{ p.name }}">{{ p.name }}</span>
+              <form method="post" action="/photo/{{ p.id }}/delete"
+                    onsubmit="return confirm('Delete {{ p.name }}?')">
+                <button type="submit" class="link danger">Delete</button>
+              </form>
+            </div>
+            <div class="row stars" role="radiogroup" aria-label="Rating">
+              {% for r in [1, 2, 3, 4, 5] %}
+                <button type="button" class="star {% if p.rating >= r %}filled{% endif %}"
+                        data-value="{{ r }}" aria-label="{{ r }} star{{ '' if r == 1 else 's' }}">★</button>
+              {% endfor %}
+              <button type="button" class="star clear-stars" data-value="0" aria-label="Clear rating"
+                      title="Clear rating">×</button>
+            </div>
+            <div class="row tags">
+              <ul class="tag-list">
+                {% for t in p.tags %}
+                  <li class="tag-chip" data-tag-id="{{ t.id }}">
+                    <span>{{ t.name }}</span>
+                    <button type="button" class="tag-remove" aria-label="Remove tag">×</button>
+                  </li>
+                {% endfor %}
+              </ul>
+              <form class="tag-add" action="/photo/{{ p.id }}/tag" method="post">
+                <input type="text" name="name" placeholder="+ tag" maxlength="64"
+                       autocomplete="off" required>
+              </form>
+            </div>
           </figcaption>
         </figure>
       {% endfor %}
@@ -58,17 +120,18 @@
 
     {% if pages > 1 %}
       <nav class="pager">
+        {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% endset %}
         {% if page > 1 %}
-          <a href="?page=1">« First</a>
-          <a href="?page={{ page - 1 }}">‹ Prev</a>
+          <a href="?page=1&{{ qs }}">« First</a>
+          <a href="?page={{ page - 1 }}&{{ qs }}">‹ Prev</a>
         {% else %}
           <span class="muted">« First</span>
           <span class="muted">‹ Prev</span>
         {% endif %}
         <span class="muted">{{ page }} / {{ pages }}</span>
         {% if page < pages %}
-          <a href="?page={{ page + 1 }}">Next ›</a>
-          <a href="?page={{ pages }}">Last »</a>
+          <a href="?page={{ page + 1 }}&{{ qs }}">Next ›</a>
+          <a href="?page={{ pages }}&{{ qs }}">Last »</a>
         {% else %}
           <span class="muted">Next ›</span>
           <span class="muted">Last »</span>
@@ -77,4 +140,7 @@
     {% endif %}
   {% endif %}
 </section>
+
+<script src="/static/upload.js" defer></script>
+<script src="/static/gallery.js" defer></script>
 {% endblock %}

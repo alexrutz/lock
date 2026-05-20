@@ -52,6 +52,18 @@ Open <http://127.0.0.1:8000/>.
 | `LOCK_THUMB_CACHE`  | `512`                | In-memory decrypted thumbnails   |
 | `LOCK_NAME_CACHE`   | `10000`              | In-memory decrypted filenames    |
 
+## Organizing photos
+
+- **Rating**: click stars on a tile (0–5). Stored as a plaintext column —
+  not sensitive on its own.
+- **Tags**: type a label in the `+ tag` field on any tile. Tag names are
+  AES-GCM encrypted; a deterministic HMAC of the name is used as the
+  UNIQUE constraint so the same tag dedups across photos without leaking
+  the name. Removing the last photo from a tag deletes the tag.
+- **Sort/filter bar** above the grid: sort by newest/oldest/top rated,
+  filter by minimum rating, filter by tag. The filters are query-string
+  driven so links are bookmarkable.
+
 ## Security notes
 
 - **No password reset.** Lose the password → lose the vault. That is the

@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 
 from argon2.low_level import Type, hash_secret_raw
@@ -55,3 +57,17 @@ def wrap_data_key(master_key: bytes) -> tuple[bytes, bytes, bytes]:
 
 def unwrap_data_key(master_key: bytes, wrap_nonce: bytes, wrapped: bytes) -> bytes:
     return decrypt(master_key, wrap_nonce, wrapped)
+
+
+_TAG_HASH_INFO = b"lock-tag-hash-v1"
+
+
+def tag_hash(master_key: bytes, normalized_name: str) -> bytes:
+    """Deterministic 32-byte tag identifier for the UNIQUE dedup constraint.
+
+    Uses a master-key-derived subkey so the hash is stable across sessions
+    but unguessable without the password. Lower-case + strip the name so
+    `Urlaub` and `urlaub` collapse to one tag.
+    """
+    subkey = hmac.new(master_key, _TAG_HASH_INFO, hashlib.sha256).digest()
+    return hmac.new(subkey, normalized_name.encode("utf-8"), hashlib.sha256).digest()

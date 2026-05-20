@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, photos
+from . import auth, photos, tags as tagmod
 from .config import GALLERY_PAGE_SIZE, SESSION_COOKIE
 from .db import init_db, vault_initialized
 from .sessions import _Session
@@ -26,22 +26,45 @@ def _redirect(target: str) -> RedirectResponse:
     return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _wants_json(request: Request) -> bool:
+    return "application/json" in (request.headers.get("accept") or "")
+
+
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, page: int = 1):
+def index(
+    request: Request,
+    page: int = 1,
+    sort: str = "newest",
+    min_rating: int = 0,
+    tag: int | None = None,
+):
     if not vault_initialized():
         return _redirect("/setup")
     session = auth.read_session(request)
     if session is None:
         return _redirect("/login")
 
+    if sort not in photos.SORT_OPTIONS:
+        sort = "newest"
+    min_rating = max(0, min(5, min_rating))
     if page < 1:
         page = 1
-    total = photos.count_photos()
+
+    all_tags = tagmod.list_all_tags(session)
+    valid_tag_ids = {t["id"] for t in all_tags}
+    if tag is not None and tag not in valid_tag_ids:
+        tag = None
+
+    total = photos.count_photos(min_rating=min_rating, filter_tag_id=tag)
     pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
     if page > pages:
         page = pages
     offset = (page - 1) * GALLERY_PAGE_SIZE
-    items = photos.list_photos_page(session, limit=GALLERY_PAGE_SIZE, offset=offset)
+    items = photos.list_photos_page(
+        session,
+        limit=GALLERY_PAGE_SIZE, offset=offset,
+        sort=sort, min_rating=min_rating, filter_tag_id=tag,
+    )
 
     return templates.TemplateResponse(
         request, "gallery.html",
@@ -51,6 +74,10 @@ def index(request: Request, page: int = 1):
             "pages": pages,
             "total": total,
             "page_size": GALLERY_PAGE_SIZE,
+            "sort": sort,
+            "min_rating": min_rating,
+            "active_tag": tag,
+            "all_tags": all_tags,
         },
     )
 
@@ -140,11 +167,10 @@ def upload(
             results.append({"name": f.filename, "id": pid, "ok": True})
         except HTTPException as e:
             results.append({"name": f.filename, "ok": False, "error": e.detail})
-        except Exception as e:  # noqa: BLE001 — never let one bad file kill the batch
+        except Exception as e:  # noqa: BLE001
             results.append({"name": f.filename, "ok": False, "error": str(e)})
 
-    wants_json = "application/json" in (request.headers.get("accept") or "")
-    if wants_json:
+    if _wants_json(request):
         ok = sum(1 for r in results if r["ok"])
         return JSONResponse(
             {"results": results, "ok": ok, "failed": len(results) - ok}
@@ -165,8 +191,6 @@ def photo(photo_id: int, session: _Session = Depends(auth.require_session)):
 @app.get("/thumb/{photo_id}")
 def thumb(photo_id: int, session: _Session = Depends(auth.require_session)):
     data, mime = photos.load_thumb(session, photo_id)
-    # Browser may keep thumbnails in its memory cache for the duration of
-    # the session, but we never want them written to its disk cache.
     return Response(
         content=data, media_type=mime,
         headers={"Cache-Control": "private, no-store"},
@@ -176,4 +200,43 @@ def thumb(photo_id: int, session: _Session = Depends(auth.require_session)):
 @app.post("/photo/{photo_id}/delete")
 def delete(photo_id: int, session: _Session = Depends(auth.require_session)):
     photos.delete_photo(session, photo_id)
+    return _redirect("/")
+
+
+@app.post("/photo/{photo_id}/rate")
+def rate(
+    request: Request,
+    photo_id: int,
+    rating: int = Form(...),
+    session: _Session = Depends(auth.require_session),
+):
+    new_rating = photos.set_rating(photo_id, rating)
+    if _wants_json(request):
+        return {"id": photo_id, "rating": new_rating}
+    return _redirect("/")
+
+
+@app.post("/photo/{photo_id}/tag")
+def tag_add(
+    request: Request,
+    photo_id: int,
+    name: str = Form(...),
+    session: _Session = Depends(auth.require_session),
+):
+    photo_tags = tagmod.add_tag_to_photo(session, photo_id, name)
+    if _wants_json(request):
+        return {"id": photo_id, "tags": photo_tags}
+    return _redirect("/")
+
+
+@app.post("/photo/{photo_id}/untag")
+def tag_remove(
+    request: Request,
+    photo_id: int,
+    tag_id: int = Form(...),
+    session: _Session = Depends(auth.require_session),
+):
+    photo_tags = tagmod.remove_tag_from_photo(session, photo_id, tag_id)
+    if _wants_json(request):
+        return {"id": photo_id, "tags": photo_tags}
     return _redirect("/")

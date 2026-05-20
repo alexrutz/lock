@@ -28,11 +28,31 @@ CREATE TABLE IF NOT EXISTS photos (
     thumb_wrapped_key BLOB NOT NULL,
     thumb_wrap_nonce BLOB NOT NULL,
     thumb_nonce BLOB NOT NULL,
+    rating INTEGER NOT NULL DEFAULT 0,
     uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_photos_uploaded
     ON photos (uploaded_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_photos_rating
+    ON photos (rating DESC, uploaded_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_ct BLOB NOT NULL,
+    name_nonce BLOB NOT NULL,
+    name_hash BLOB NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS photo_tags (
+    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    tag_id   INTEGER NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
+    PRIMARY KEY (photo_id, tag_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_photo_tags_tag ON photo_tags (tag_id);
 """
 
 
@@ -44,9 +64,17 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring existing databases up to current schema."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(photos)")}
+    if "rating" not in cols:
+        conn.execute("ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
 
 
 @contextmanager
