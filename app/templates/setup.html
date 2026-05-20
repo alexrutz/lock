@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Set up vault{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Set up your vault</h1>
+  {% if not result %}
+    <p>This is a one-time setup. Choose a strong master password — it cannot be reset.
+       After saving, you'll get a QR code to scan with an authenticator app.</p>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <form method="post" action="/setup">
+      <label>Master password
+        <input type="password" name="password" minlength="8" required autofocus>
+      </label>
+      <label>Confirm password
+        <input type="password" name="confirm" minlength="8" required>
+      </label>
+      <button type="submit">Create vault</button>
+    </form>
+  {% else %}
+    <h2>Scan this with your authenticator app</h2>
+    <img class="qr" src="{{ result.qr }}" alt="TOTP QR code">
+    <p>Or enter the secret manually: <code>{{ result.secret }}</code></p>
+    <p class="warn">Save this secret somewhere safe — it is the only way to recover access
+       if you lose your authenticator device.</p>
+    <p><a href="/login">Continue to login →</a></p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,1 +1,52 @@
-# lock
+# Lock
+
+Single-user web vault for personal photos. Every upload is encrypted with
+AES-256-GCM under a key derived from your master password (Argon2id).
+Access requires the password plus a 6-digit code from a TOTP authenticator
+app (Google Authenticator, Authy, 1Password, etc.).
+
+## How it works
+
+- Argon2id turns your password into a 32-byte master key on every login.
+- Each photo gets a random data key (AES-256-GCM) that is wrapped with the
+  master key. Encrypted blobs live in `data/photos/`, encrypted thumbnails
+  in `data/thumbs/`. Filenames, the TOTP secret, and a sentinel are also
+  encrypted with the master key.
+- The master key only exists in process memory while you are logged in.
+  Logout, idle timeout (30 min default), or a restart wipes it.
+
+## Run it
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+uvicorn app.main:app --reload
+```
+
+Open <http://127.0.0.1:8000/>.
+
+1. First visit redirects to **`/setup`**. Pick a master password.
+2. Scan the QR with an authenticator app. **Save the secret** shown below
+   the QR — it is the only way to recover access if you lose your phone.
+3. Log in with password + 6-digit code, then upload photos.
+
+## Configuration
+
+| Env var             | Default              | Purpose                          |
+|---------------------|----------------------|----------------------------------|
+| `LOCK_DATA_DIR`     | `./data`             | Where DB + encrypted blobs live  |
+| `LOCK_SESSION_TTL`  | `1800` (seconds)     | Idle timeout                     |
+| `LOCK_MAX_UPLOAD`   | `52428800` (50 MiB)  | Per-file upload cap              |
+| `LOCK_ISSUER`       | `Lock Vault`         | Issuer label shown in TOTP app   |
+
+## Security notes
+
+- **No password reset.** Lose the password → lose the vault. That is the
+  point of password-derived encryption.
+- Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik) in front
+  before exposing it to a network. The session cookie is HttpOnly but is
+  served over plain HTTP by default for local development.
+- Disk access on the server reveals only ciphertext and a password verifier
+  (Argon2id hash). The verifier resists offline cracking but is not magic;
+  use a strong password.
+- This is a personal-use project, not an audited product.

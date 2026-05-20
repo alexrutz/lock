@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Vault{% endblock %}
+{% block nav %}
+<form method="post" action="/logout" class="inline">
+  <button type="submit" class="link">Lock</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Upload photos</h1>
+  <form method="post" action="/upload" enctype="multipart/form-data">
+    <input type="file" name="file" accept="image/*" required>
+    <button type="submit">Encrypt &amp; store</button>
+  </form>
+</section>
+
+<section>
+  <h2>{{ photos | length }} photo{{ '' if photos|length == 1 else 's' }}</h2>
+  {% if not photos %}
+    <p class="muted">Your vault is empty.</p>
+  {% else %}
+    <div class="grid">
+      {% for p in photos %}
+        <figure class="tile">
+          <a href="/photo/{{ p.id }}" target="_blank" rel="noopener">
+            <img src="/thumb/{{ p.id }}" alt="{{ p.name }}" loading="lazy">
+          </a>
+          <figcaption>
+            <span class="name" title="{{ p.name }}">{{ p.name }}</span>
+            <form method="post" action="/photo/{{ p.id }}/delete"
+                  onsubmit="return confirm('Delete {{ p.name }}?')">
+              <button type="submit" class="link danger">Delete</button>
+            </form>
+          </figcaption>
+        </figure>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
