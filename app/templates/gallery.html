@@ -1,5 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Vault{% endblock %}
+{% block head_script %}
+{# Per-tab session guard: closing the tab discards sessionStorage, so a
+   reopened tab finds no marker and is sent back to /login. The /login
+   handler sees the just-cleared cookie and serves the form. #}
+<script>
+(async function () {
+  var sp = new URLSearchParams(location.search);
+  if (sp.has("fresh")) {
+    sessionStorage.setItem("lock:tab", "1");
+    sp.delete("fresh");
+    var rest = sp.toString();
+    history.replaceState(null, "", location.pathname + (rest ? "?" + rest : ""));
+    return;
+  }
+  if (!sessionStorage.getItem("lock:tab")) {
+    // Hide everything until we've cleared the cookie and navigated away,
+    // so a reopened tab never flashes the gallery.
+    document.documentElement.style.visibility = "hidden";
+    try { await fetch("/logout", { method: "POST", credentials: "same-origin" }); }
+    catch (_) {}
+    location.replace("/login");
+  }
+})();
+</script>
+{% endblock %}
 {% block nav %}
 <form method="post" action="/logout" class="inline">
   <button type="submit" class="link">Lock</button>

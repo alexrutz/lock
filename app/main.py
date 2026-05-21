@@ -157,7 +157,10 @@ def login_post(request: Request, password: str = Form(...), totp: str = Form(...
             status_code=e.status_code,
         )
     name, value = auth.make_session_cookie(master_key)
-    resp = _redirect("/")
+    # `fresh=1` tells the per-tab guard in gallery.html "this load is the
+    # result of an actual login, not a tab reopen" — see that script for
+    # the full handshake.
+    resp = _redirect("/?fresh=1")
     resp.set_cookie(
         name, value,
         httponly=True, samesite="lax", secure=False, path="/",
