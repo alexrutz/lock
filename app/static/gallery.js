@@ -1,6 +1,38 @@
 (() => {
   const SEL_KEY = "lock:selected";
+  const DENSITY_KEY = "lock:density";
   const MAX_PREVIEW = 4;
+
+  // ---------- tile-density control (client-only, persisted) ----------
+  // Multipliers on the base --tile-min set in CSS. 5 steps total; index
+  // 2 is "comfortable" (1.0×). Smaller index = finer grid (more tiles
+  // per row), larger index = coarser grid.
+  const DENSITY_STEPS = [0.6, 0.78, 1.0, 1.3, 1.7];
+  let densityIdx = (() => {
+    const raw = parseInt(localStorage.getItem(DENSITY_KEY) || "2", 10);
+    return Number.isFinite(raw) && raw >= 0 && raw < DENSITY_STEPS.length ? raw : 2;
+  })();
+
+  function applyDensity() {
+    document.documentElement.style.setProperty("--density", String(DENSITY_STEPS[densityIdx]));
+    const finer = document.getElementById("dens-finer");
+    const coarser = document.getElementById("dens-coarser");
+    if (finer)   finer.disabled   = densityIdx === 0;
+    if (coarser) coarser.disabled = densityIdx === DENSITY_STEPS.length - 1;
+  }
+  applyDensity();
+  document.getElementById("dens-finer")?.addEventListener("click", () => {
+    if (densityIdx === 0) return;
+    densityIdx--;
+    localStorage.setItem(DENSITY_KEY, String(densityIdx));
+    applyDensity();
+  });
+  document.getElementById("dens-coarser")?.addEventListener("click", () => {
+    if (densityIdx === DENSITY_STEPS.length - 1) return;
+    densityIdx++;
+    localStorage.setItem(DENSITY_KEY, String(densityIdx));
+    applyDensity();
+  });
 
   // ---------- selection state (persists across pagination) ----------
   function loadSelection() {

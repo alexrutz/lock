@@ -146,7 +146,7 @@ code {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(180px * var(--density, 1)), 1fr));
   gap: 14px;
 }
 .tile {
@@ -198,6 +198,54 @@ code {
   border-radius: 6px;
 }
 .pager a:hover { background: var(--panel-2); }
+
+/* View controls: density + per-page selector, sit above the top pager. */
+.view-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.density-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.density-toggle button {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  padding: 6px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+  min-width: 36px;
+}
+.density-toggle button:hover:not(:disabled) { background: var(--panel-2); }
+.density-toggle button:disabled { opacity: 0.35; cursor: default; }
+.per-page-form { display: inline-flex; align-items: center; }
+.per-page-form label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+.per-page-form select {
+  padding: 5px 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
 
 .pager-top {
   justify-content: center;
@@ -703,7 +751,7 @@ code {
   .filter-form .clear { margin-left: 0; align-self: flex-end; }
 
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(calc(140px * var(--density, 1)), 1fr));
     gap: 10px;
   }
 

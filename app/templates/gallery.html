@@ -42,6 +42,7 @@
 <details class="filter-bar collapsible" {% if filters_active %}open{% endif %}>
   <summary><span>Filters &amp; sort {{ filter_summary }}</span></summary>
   <form method="get" action="/" class="filter-form">
+    {% if page_size != default_page_size %}<input type="hidden" name="per_page" value="{{ page_size }}">{% endif %}
     <label>Sort
       <select name="sort" onchange="this.form.submit()">
         <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest first</option>
@@ -105,8 +106,29 @@
     </div>
   </div>
 
+  {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% if page_size != default_page_size %}&per_page={{ page_size }}{% endif %}{% endset %}
+
+  <div class="view-controls">
+    <div class="density-toggle" role="group" aria-label="Tile size">
+      <button type="button" id="dens-finer"    aria-label="Smaller tiles" title="Smaller tiles">−</button>
+      <button type="button" id="dens-coarser"  aria-label="Larger tiles"  title="Larger tiles">+</button>
+    </div>
+    <form method="get" action="/" class="per-page-form">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="min_rating" value="{{ min_rating }}">
+      {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
+      {% if show_hidden %}<input type="hidden" name="show_hidden" value="1">{% endif %}
+      <label>Per page
+        <select name="per_page" onchange="this.form.submit()">
+          {% for n in page_size_choices %}
+            <option value="{{ n }}" {% if n == page_size %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
   {% if pages > 1 %}
-    {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% endset %}
     <nav class="pager pager-top">
       {% if page > 1 %}
         <a href="?page=1&{{ qs }}" aria-label="First page">«</a>
@@ -123,6 +145,7 @@
         <input type="hidden" name="min_rating" value="{{ min_rating }}">
         {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
         {% if show_hidden %}<input type="hidden" name="show_hidden" value="1">{% endif %}
+        {% if page_size != default_page_size %}<input type="hidden" name="per_page" value="{{ page_size }}">{% endif %}
         <input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}"
                inputmode="numeric" aria-label="Go to page"
                onclick="this.select()">

@@ -37,6 +37,7 @@ def _wants_json(request: Request) -> bool:
 def index(
     request: Request,
     page: int = 1,
+    per_page: int | None = None,
     sort: str = "newest",
     min_rating: int = 0,
     tag: str | None = None,
@@ -54,8 +55,13 @@ def index(
     if page < 1:
         page = 1
 
-    # The filter form always submits `tag=` even when "all" is selected,
-    # so we tolerate empty / non-numeric values here.
+    # Clamp page_size to a sane range; fall back to env-configured default
+    # when the URL doesn't specify one.
+    if per_page is not None and per_page > 0:
+        page_size = max(10, min(500, per_page))
+    else:
+        page_size = GALLERY_PAGE_SIZE
+
     tag_id: int | None = None
     if tag and tag.isdigit():
         tag_id = int(tag)
@@ -68,13 +74,13 @@ def index(
     total = photos.count_photos(
         min_rating=min_rating, filter_tag_id=tag_id, include_hidden=show_hidden,
     )
-    pages = max(1, (total + GALLERY_PAGE_SIZE - 1) // GALLERY_PAGE_SIZE)
+    pages = max(1, (total + page_size - 1) // page_size)
     if page > pages:
         page = pages
-    offset = (page - 1) * GALLERY_PAGE_SIZE
+    offset = (page - 1) * page_size
     items = photos.list_photos_page(
         session,
-        limit=GALLERY_PAGE_SIZE, offset=offset,
+        limit=page_size, offset=offset,
         sort=sort, min_rating=min_rating, filter_tag_id=tag_id,
         include_hidden=show_hidden,
     )
@@ -86,7 +92,9 @@ def index(
             "page": page,
             "pages": pages,
             "total": total,
-            "page_size": GALLERY_PAGE_SIZE,
+            "page_size": page_size,
+            "default_page_size": GALLERY_PAGE_SIZE,
+            "page_size_choices": [20, 60, 120, 200, 500],
             "sort": sort,
             "min_rating": min_rating,
             "active_tag": tag_id,
