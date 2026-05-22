@@ -229,6 +229,15 @@ code {
 }
 .density-toggle button:hover:not(:disabled) { background: var(--panel-2); }
 .density-toggle button:disabled { opacity: 0.35; cursor: default; }
+/* The overlay toggle reuses the same pill but isn't a +/- — narrow it
+   slightly and highlight when active. */
+.density-toggle #overlay-toggle {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+}
+.density-toggle #overlay-toggle.active { color: var(--accent); }
 .per-page-form { display: inline-flex; align-items: center; }
 .per-page-form label {
   display: flex;
@@ -625,6 +634,11 @@ code {
 /* Hidden state */
 .tile.is-hidden .tile-image-link img { opacity: 0.4; filter: grayscale(0.6); }
 .tile.is-hidden:hover .tile-image-link img { opacity: 0.7; }
+
+/* User-toggled "hide overlay" mode: figcaption disappears so the
+   thumbnail uses the entire tile. Select-checkbox and HIDDEN badge
+   stay visible. Persisted client-side per browser. */
+body[data-overlay="off"] .tile figcaption { display: none; }
 .hidden-badge {
   position: absolute;
   top: 6px;

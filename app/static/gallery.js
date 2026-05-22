@@ -36,6 +36,25 @@
     requestAnimationFrame(updateTightLayout);
   });
 
+  // ---------- per-tile overlay toggle ----------
+  // Hides the figcaption (name, stars, tags, delete) over the
+  // thumbnail so more of the image is visible. Useful when running a
+  // dense grid on the desktop.
+  const OVERLAY_KEY = "lock:overlay";
+  const overlayBtn = document.getElementById("overlay-toggle");
+  function applyOverlay() {
+    const off = localStorage.getItem(OVERLAY_KEY) === "off";
+    if (off) document.body.dataset.overlay = "off";
+    else delete document.body.dataset.overlay;
+    if (overlayBtn) overlayBtn.classList.toggle("active", !off);
+  }
+  applyOverlay();
+  overlayBtn?.addEventListener("click", () => {
+    const off = localStorage.getItem(OVERLAY_KEY) === "off";
+    localStorage.setItem(OVERLAY_KEY, off ? "on" : "off");
+    applyOverlay();
+  });
+
   // ---------- "tight layout" detection (Mobile + >2 columns) ----------
   // When the grid renders more than two columns on a phone, the figcaption
   // overlay starts to cover too much of each thumbnail. Hide it then.
