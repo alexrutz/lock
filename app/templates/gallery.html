@@ -30,7 +30,7 @@
   <button type="submit" class="link">Lock</button>
 </form>
 {% endblock %}
-{% set filters_active = sort != 'newest' or min_rating > 0 or active_tag or show_hidden %}
+{% set filters_active = sort != 'newest' or min_rating > 0 or active_tag or show_hidden or q %}
 {% set filter_summary %}
   {% if filters_active %}
     {% set parts = [] %}
@@ -40,6 +40,7 @@
       {% for t in all_tags %}{% if t.id == active_tag %}{% set _ = parts.append(t.name) %}{% endif %}{% endfor %}
     {% endif %}
     {% if show_hidden %}{% set _ = parts.append('show hidden') %}{% endif %}
+    {% if q %}{% set _ = parts.append('“' ~ q ~ '”') %}{% endif %}
     ({{ parts | join(', ') }})
   {% endif %}
 {% endset %}
@@ -68,6 +69,11 @@
   <summary><span>Filters &amp; sort {{ filter_summary }}</span></summary>
   <form method="get" action="/" class="filter-form">
     {% if page_size != default_page_size %}<input type="hidden" name="per_page" value="{{ page_size }}">{% endif %}
+    <label class="search-field">Search
+      <input type="search" name="q" value="{{ q or '' }}"
+             placeholder="image description"
+             autocomplete="off">
+    </label>
     <label>Sort
       <select name="sort" onchange="this.form.submit()">
         <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest first</option>
@@ -104,6 +110,12 @@
       <a class="clear" href="/">Clear filters</a>
     {% endif %}
   </form>
+  {% if reindex_pending > 0 %}
+    <p class="reindex-note muted" data-reindex-pending="{{ reindex_pending }}">
+      <span id="reindex-status">{{ reindex_pending }} photos not yet searchable</span> ·
+      <button type="button" id="btn-reindex" class="link">Index now</button>
+    </p>
+  {% endif %}
 </details>
 
 <div id="action-bar" class="action-bar" hidden>
@@ -131,7 +143,7 @@
     </div>
   </div>
 
-  {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% if page_size != default_page_size %}&per_page={{ page_size }}{% endif %}{% endset %}
+  {% set qs %}sort={{ sort }}&min_rating={{ min_rating }}{% if active_tag %}&tag={{ active_tag }}{% endif %}{% if show_hidden %}&show_hidden=1{% endif %}{% if page_size != default_page_size %}&per_page={{ page_size }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}{% endset %}
 
   <div class="view-controls">
     <div class="density-toggle" role="group" aria-label="Tile size">
@@ -143,6 +155,7 @@
       <input type="hidden" name="min_rating" value="{{ min_rating }}">
       {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
       {% if show_hidden %}<input type="hidden" name="show_hidden" value="1">{% endif %}
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       <label>Per page
         <select name="per_page" onchange="this.form.submit()">
           {% for n in page_size_choices %}
@@ -171,10 +184,14 @@
         {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
         {% if show_hidden %}<input type="hidden" name="show_hidden" value="1">{% endif %}
         {% if page_size != default_page_size %}<input type="hidden" name="per_page" value="{{ page_size }}">{% endif %}
+        {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         <input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}"
                inputmode="numeric" aria-label="Go to page"
                onclick="this.select()">
         <span class="muted">/ {{ pages }}</span>
+        {# Phone keyboards for type=number have no Enter / submit; an
+           explicit Go button gives a reliable submit affordance. #}
+        <button type="submit" class="page-go" aria-label="Go to page">Go</button>
       </form>
 
       {% if page < pages %}

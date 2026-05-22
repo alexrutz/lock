@@ -4,11 +4,68 @@ from typing import Iterator
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps
+from PIL.ExifTags import TAGS
 
 from . import crypto, tags as tagmod
 from .config import MAX_UPLOAD_BYTES, PHOTO_DIR, THUMB_DIR, THUMBNAIL_SIZE
 from .db import get_conn
 from .sessions import _Session
+
+
+# EXIF fields that carry human-written descriptions. Windows' "Titel"
+# (in the file-properties Beschreibung tab) writes XPTitle; Lightroom and
+# friends use ImageDescription; UserComment is the EXIF standard.
+_DESCRIPTION_TAGS = {
+    "ImageDescription",
+    "XPTitle",
+    "XPSubject",
+    "XPComment",
+    "UserComment",
+}
+
+
+def _decode_exif_value(val) -> str:
+    """Best-effort decode of an EXIF value into a Python string."""
+    if isinstance(val, bytes):
+        # XPTitle / XPSubject / XPComment are stored as UTF-16-LE with a
+        # trailing NUL pair.
+        for encoding in ("utf-16-le", "utf-8", "latin-1"):
+            try:
+                s = val.decode(encoding)
+                if s and "\x00\x00" not in s[2:4]:  # plausible decode
+                    return s.replace("\x00", "").strip()
+            except UnicodeDecodeError:
+                continue
+        return ""
+    if isinstance(val, str):
+        return val.replace("\x00", "").strip()
+    return ""
+
+
+def extract_description(image_bytes: bytes) -> str:
+    """Pull title / description text out of an image's EXIF metadata.
+
+    Returns an empty string when the image has none. Combines all
+    description-style fields (image description + Windows title /
+    subject / comment + EXIF user comment) so a search hits regardless
+    of which tool wrote the metadata.
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as im:
+            exif = im.getexif()
+            if not exif:
+                return ""
+            seen: list[str] = []
+            for tag_id, raw in exif.items():
+                name = TAGS.get(tag_id)
+                if name not in _DESCRIPTION_TAGS:
+                    continue
+                text = _decode_exif_value(raw)
+                if text and text not in seen:
+                    seen.append(text)
+            return " ".join(seen)
+    except Exception:
+        return ""
 
 ALLOWED_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 STREAM_CHUNK = 64 * 1024
@@ -65,6 +122,12 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
     filename = upload.filename or "photo"
     name_nonce, name_ct = crypto.encrypt(master_key, filename.encode("utf-8"))
 
+    description = extract_description(data)
+    if description:
+        desc_nonce, desc_ct = crypto.encrypt(master_key, description.encode("utf-8"))
+    else:
+        desc_nonce, desc_ct = None, None
+
     data_key, wrap_nonce, wrapped_key = crypto.wrap_data_key(master_key)
     nonce, ct = crypto.encrypt(data_key, data)
 
@@ -76,12 +139,14 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
             """INSERT INTO photos
                (original_name_ct, name_nonce, mime, size,
                 wrapped_key, wrap_nonce, nonce,
-                thumb_wrapped_key, thumb_wrap_nonce, thumb_nonce)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                thumb_wrapped_key, thumb_wrap_nonce, thumb_nonce,
+                description_ct, description_nonce, description_indexed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
             (
                 name_ct, name_nonce, mime, len(data),
                 wrapped_key, wrap_nonce, nonce,
                 thumb_wrapped_key, thumb_wrap_nonce, thumb_nonce,
+                desc_ct, desc_nonce,
             ),
         )
         photo_id = cur.lastrowid
@@ -91,6 +156,8 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
 
     session.name_cache.put(photo_id, filename)
     session.thumb_cache.put(photo_id, thumb_bytes)
+    if description:
+        session.description_cache.put(photo_id, description)
     return photo_id
 
 
@@ -98,6 +165,7 @@ def _filter_clauses(
     min_rating: int,
     filter_tag_id: int | None,
     include_hidden: bool = False,
+    id_filter: set[int] | None = None,
 ) -> tuple[str, list]:
     where: list[str] = []
     params: list = []
@@ -109,6 +177,14 @@ def _filter_clauses(
     if filter_tag_id is not None:
         where.append("id IN (SELECT photo_id FROM photo_tags WHERE tag_id = ?)")
         params.append(filter_tag_id)
+    if id_filter is not None:
+        if not id_filter:
+            # Empty search match — force zero rows without breaking SQL.
+            where.append("1 = 0")
+        else:
+            placeholders = ",".join("?" * len(id_filter))
+            where.append(f"id IN ({placeholders})")
+            params.extend(id_filter)
     sql = ("WHERE " + " AND ".join(where)) if where else ""
     return sql, params
 
@@ -117,8 +193,9 @@ def count_photos(
     min_rating: int = 0,
     filter_tag_id: int | None = None,
     include_hidden: bool = False,
+    id_filter: set[int] | None = None,
 ) -> int:
-    where_sql, params = _filter_clauses(min_rating, filter_tag_id, include_hidden)
+    where_sql, params = _filter_clauses(min_rating, filter_tag_id, include_hidden, id_filter)
     with get_conn() as conn:
         return int(conn.execute(
             f"SELECT COUNT(*) AS c FROM photos {where_sql}", params
@@ -134,6 +211,7 @@ def list_photos_page(
     min_rating: int = 0,
     filter_tag_id: int | None = None,
     include_hidden: bool = False,
+    id_filter: set[int] | None = None,
 ) -> list[PhotoMeta]:
     if sort not in SORT_OPTIONS:
         sort = "newest"
@@ -142,7 +220,9 @@ def list_photos_page(
         "oldest": "ORDER BY uploaded_at ASC,  id ASC",
         "rating": "ORDER BY rating DESC, uploaded_at DESC, id DESC",
     }[sort]
-    where_sql, where_params = _filter_clauses(min_rating, filter_tag_id, include_hidden)
+    where_sql, where_params = _filter_clauses(
+        min_rating, filter_tag_id, include_hidden, id_filter,
+    )
 
     with get_conn() as conn:
         rows = conn.execute(
@@ -192,8 +272,11 @@ def random_photo(
     min_rating: int = 0,
     filter_tag_id: int | None = None,
     include_hidden: bool = False,
+    id_filter: set[int] | None = None,
 ) -> PhotoMeta | None:
-    where_sql, where_params = _filter_clauses(min_rating, filter_tag_id, include_hidden)
+    where_sql, where_params = _filter_clauses(
+        min_rating, filter_tag_id, include_hidden, id_filter,
+    )
     with get_conn() as conn:
         row = conn.execute(
             f"""SELECT id, original_name_ct, name_nonce, mime, size,
@@ -227,6 +310,87 @@ def random_photo(
         rating=row["rating"] or 0,
         hidden=bool(row["hidden"]),
     )
+
+
+def search_by_description(session: _Session, query: str) -> set[int]:
+    """Return the set of photo IDs whose EXIF description contains
+    `query` (case-insensitive substring). Returns empty set if nothing
+    matches; the caller should pass this through as an id_filter."""
+    needle = query.strip().lower()
+    if not needle:
+        return set()
+    matching: set[int] = set()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, description_ct, description_nonce "
+            "FROM photos WHERE description_ct IS NOT NULL"
+        ).fetchall()
+    for r in rows:
+        pid = r["id"]
+        cached = session.description_cache.get(pid)
+        if cached is None:
+            try:
+                cached = crypto.decrypt(
+                    session.master_key, r["description_nonce"], r["description_ct"]
+                ).decode("utf-8")
+            except Exception:
+                cached = ""
+            session.description_cache.put(pid, cached)
+        if needle in cached.lower():  # type: ignore[union-attr]
+            matching.add(pid)
+    return matching
+
+
+def reindex_pending_count() -> int:
+    with get_conn() as conn:
+        return int(conn.execute(
+            "SELECT COUNT(*) AS c FROM photos WHERE description_indexed = 0"
+        ).fetchone()["c"])
+
+
+def reindex_descriptions_batch(session: _Session, limit: int = 100) -> dict:
+    """Process up to `limit` photos that haven't been EXIF-scanned yet.
+    Decrypts the original to read EXIF, encrypts any description found
+    back into the row, and flips description_indexed=1 either way so we
+    never re-scan the same photo twice."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, wrapped_key, wrap_nonce, nonce "
+            "FROM photos WHERE description_indexed = 0 LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    master_key = session.master_key
+    processed = 0
+    for r in rows:
+        pid = r["id"]
+        path = PHOTO_DIR / f"{pid}.bin"
+        desc = ""
+        if path.exists():
+            try:
+                data_key = crypto.unwrap_data_key(master_key, r["wrap_nonce"], r["wrapped_key"])
+                plaintext = crypto.decrypt(data_key, r["nonce"], path.read_bytes())
+                desc = extract_description(plaintext)
+            except Exception:
+                desc = ""
+
+        with get_conn() as conn:
+            if desc:
+                nonce, ct = crypto.encrypt(master_key, desc.encode("utf-8"))
+                conn.execute(
+                    "UPDATE photos SET description_ct = ?, description_nonce = ?, "
+                    "description_indexed = 1 WHERE id = ?",
+                    (ct, nonce, pid),
+                )
+                session.description_cache.put(pid, desc)
+            else:
+                conn.execute(
+                    "UPDATE photos SET description_indexed = 1 WHERE id = ?", (pid,)
+                )
+        processed += 1
+
+    remaining = reindex_pending_count()
+    return {"processed": processed, "remaining": remaining}
 
 
 def set_hidden(photo_id: int, hidden: bool) -> bool:

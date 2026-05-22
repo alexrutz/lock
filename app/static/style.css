@@ -283,6 +283,18 @@ code {
   -webkit-appearance: none; margin: 0;
 }
 .page-jump input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.page-go {
+  padding: 6px 10px;
+  background: var(--accent);
+  color: #0a1224;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 4px;
+}
 .pager-bottom { justify-content: center; margin-top: 14px; }
 
 .dropzone {
@@ -410,6 +422,19 @@ code {
   font-size: 13px;
   text-decoration: none;
 }
+.filter-form .search-field { flex: 1 1 220px; }
+.filter-form input[type="search"] {
+  padding: 6px 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+}
+.filter-form input[type="search"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.reindex-note { font-size: 12px; margin: 4px 0 0; }
 
 /* Tile rows */
 /* figcaption overlays the bottom of the image with a gradient so the
@@ -776,4 +801,10 @@ code {
 
   .viewer-rating .vstar { font-size: 30px; padding: 8px 6px; min-width: 44px; min-height: 44px; }
   .viewer-rating .vstar-clear { font-size: 24px; }
+
+  /* When more than two columns are visible on a phone, the figcaption
+     overlay covers too much of each thumbnail. JS sets data-cols-tight
+     on body whenever the grid renders >2 columns. */
+  body[data-cols-tight] .tile figcaption { display: none; }
+  body[data-cols-tight] .tile.is-hidden .hidden-badge { display: inline-block; }
 }

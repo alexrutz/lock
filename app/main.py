@@ -42,6 +42,7 @@ def index(
     min_rating: int = 0,
     tag: str | None = None,
     show_hidden: bool = False,
+    q: str | None = None,
 ):
     if not vault_initialized():
         return _redirect("/setup")
@@ -71,8 +72,14 @@ def index(
     if tag_id is not None and tag_id not in valid_tag_ids:
         tag_id = None
 
+    q_clean = (q or "").strip()
+    id_filter: set[int] | None = None
+    if q_clean:
+        id_filter = photos.search_by_description(session, q_clean)
+
     total = photos.count_photos(
         min_rating=min_rating, filter_tag_id=tag_id, include_hidden=show_hidden,
+        id_filter=id_filter,
     )
     pages = max(1, (total + page_size - 1) // page_size)
     if page > pages:
@@ -83,7 +90,10 @@ def index(
         limit=page_size, offset=offset,
         sort=sort, min_rating=min_rating, filter_tag_id=tag_id,
         include_hidden=show_hidden,
+        id_filter=id_filter,
     )
+
+    reindex_pending = photos.reindex_pending_count()
 
     return templates.TemplateResponse(
         request, "gallery.html",
@@ -100,6 +110,8 @@ def index(
             "active_tag": tag_id,
             "all_tags": all_tags,
             "show_hidden": show_hidden,
+            "q": q_clean,
+            "reindex_pending": reindex_pending,
         },
     )
 
@@ -233,6 +245,7 @@ def api_random(
     min_rating: int = 0,
     tag: str | None = None,
     show_hidden: bool = False,
+    q: str | None = None,
     session: _Session = Depends(auth.require_session),
 ):
     tag_id: int | None = None
@@ -240,15 +253,37 @@ def api_random(
         tag_id = int(tag)
     min_rating = max(0, min(5, min_rating))
 
+    id_filter: set[int] | None = None
+    if q and q.strip():
+        id_filter = photos.search_by_description(session, q.strip())
+
     photo = photos.random_photo(
         session,
         min_rating=min_rating,
         filter_tag_id=tag_id,
         include_hidden=show_hidden,
+        id_filter=id_filter,
     )
     if photo is None:
         raise HTTPException(status_code=404, detail="No photos match")
-    return {"id": photo.id, "name": photo.name, "hidden": photo.hidden}
+    return {
+        "id": photo.id,
+        "name": photo.name,
+        "hidden": photo.hidden,
+        "rating": photo.rating,
+    }
+
+
+@app.post("/api/reindex-batch")
+def api_reindex_batch(
+    limit: int = 100,
+    session: _Session = Depends(auth.require_session),
+):
+    """Process up to `limit` not-yet-indexed photos for EXIF description.
+    Driven by the gallery's auto-reindex JS loop so old uploads become
+    searchable without a blocking request."""
+    limit = max(1, min(500, limit))
+    return photos.reindex_descriptions_batch(session, limit=limit)
 
 
 @app.post("/photo/{photo_id}/hide")

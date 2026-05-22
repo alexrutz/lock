@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS photos (
     thumb_nonce BLOB NOT NULL,
     rating INTEGER NOT NULL DEFAULT 0,
     hidden INTEGER NOT NULL DEFAULT 0,
+    description_ct BLOB,
+    description_nonce BLOB,
+    description_indexed INTEGER NOT NULL DEFAULT 0,
     uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,6 +75,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
     if "hidden" not in cols:
         conn.execute("ALTER TABLE photos ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+    if "description_indexed" not in cols:
+        conn.execute("ALTER TABLE photos ADD COLUMN description_ct BLOB")
+        conn.execute("ALTER TABLE photos ADD COLUMN description_nonce BLOB")
+        conn.execute("ALTER TABLE photos ADD COLUMN description_indexed INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:

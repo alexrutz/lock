@@ -26,13 +26,32 @@
     densityIdx--;
     localStorage.setItem(DENSITY_KEY, String(densityIdx));
     applyDensity();
+    requestAnimationFrame(updateTightLayout);
   });
   document.getElementById("dens-coarser")?.addEventListener("click", () => {
     if (densityIdx === DENSITY_STEPS.length - 1) return;
     densityIdx++;
     localStorage.setItem(DENSITY_KEY, String(densityIdx));
     applyDensity();
+    requestAnimationFrame(updateTightLayout);
   });
+
+  // ---------- "tight layout" detection (Mobile + >2 columns) ----------
+  // When the grid renders more than two columns on a phone, the figcaption
+  // overlay starts to cover too much of each thumbnail. Hide it then.
+  function updateTightLayout() {
+    const grid = document.querySelector(".grid");
+    if (!grid) {
+      delete document.body.dataset.colsTight;
+      return;
+    }
+    const cs = getComputedStyle(grid).gridTemplateColumns;
+    const cols = cs ? cs.split(/\s+/).filter(Boolean).length : 1;
+    if (cols > 2) document.body.dataset.colsTight = "1";
+    else delete document.body.dataset.colsTight;
+  }
+  updateTightLayout();
+  window.addEventListener("resize", () => requestAnimationFrame(updateTightLayout));
 
   // ---------- selection state (persists across pagination) ----------
   function loadSelection() {
@@ -201,11 +220,19 @@
     refreshActionBar();
   });
 
+  // Random-mode history so left-arrow / prev goes back to actual
+  // previously-seen photos instead of rolling a new one.
+  let randomHistory = [];
+  let randomCursor = -1;
+
   const btnRandom = document.getElementById("btn-random");
   if (btnRandom) {
     btnRandom.addEventListener("click", async () => {
       const photo = await fetchRandom();
-      if (photo) openViewer([photo], 0, /*multi=*/false, /*random=*/true);
+      if (!photo) return;
+      randomHistory = [photo];
+      randomCursor = 0;
+      openViewer([photo], 0, /*multi=*/false, /*random=*/true);
     });
   }
 
@@ -253,6 +280,37 @@
   });
 
   refreshActionBar();
+
+  // ---------- EXIF reindex driver ----------
+  const reindexBtn = document.getElementById("btn-reindex");
+  const reindexStatus = document.getElementById("reindex-status");
+  if (reindexBtn && reindexStatus) {
+    reindexBtn.addEventListener("click", async () => {
+      reindexBtn.disabled = true;
+      let remaining = parseInt(
+        document.querySelector(".reindex-note")?.dataset.reindexPending || "0", 10);
+      while (remaining > 0) {
+        try {
+          const res = await fetch("/api/reindex-batch?limit=100", { method: "POST" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          remaining = json.remaining;
+          reindexStatus.textContent =
+            remaining > 0 ? `${remaining} photos not yet searchable` : "done";
+          if (!json.processed) break;
+        } catch (e) {
+          console.error(e);
+          reindexStatus.textContent = "error — try again";
+          break;
+        }
+      }
+      if (remaining === 0) {
+        reindexBtn.textContent = "Done — reload to search";
+      } else {
+        reindexBtn.disabled = false;
+      }
+    });
+  }
 
   // ---------- viewer ----------
   const viewer = document.getElementById("viewer");
@@ -352,7 +410,25 @@
 
   async function stepViewer(delta) {
     if (viewerMode === "random") {
-      const photo = await fetchRandom();
+      let photo = null;
+      if (delta > 0) {
+        // Forward: advance in history if we already went back, else
+        // roll a new random and push it on the stack.
+        if (randomCursor + 1 < randomHistory.length) {
+          randomCursor++;
+          photo = randomHistory[randomCursor];
+        } else {
+          photo = await fetchRandom();
+          if (photo) {
+            randomHistory.push(photo);
+            randomCursor = randomHistory.length - 1;
+          }
+        }
+      } else if (randomCursor > 0) {
+        // Backward: step into history, no network call.
+        randomCursor--;
+        photo = randomHistory[randomCursor];
+      }
       if (photo) renderViewer([photo]);
       return;
     }
@@ -374,8 +450,14 @@
         // Stay in the viewer — just roll the next random photo. Don't
         // bother reloading the gallery, that interrupts the flow.
         const next = await fetchRandom();
-        if (next) renderViewer([next]);
-        else closeViewer();
+        if (next) {
+          // Drop anything after the cursor (we're branching from here)
+          // and append the new pick.
+          randomHistory = randomHistory.slice(0, randomCursor + 1);
+          randomHistory.push(next);
+          randomCursor = randomHistory.length - 1;
+          renderViewer([next]);
+        } else closeViewer();
         return;
       }
       // Single-mode: the photo may now be excluded from the current
