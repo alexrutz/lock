@@ -38,7 +38,7 @@ def index(
     request: Request,
     page: int = 1,
     per_page: int | None = None,
-    sort: str = "newest",
+    sort: str = photos.DEFAULT_SORT,
     min_rating: int = 0,
     tag: str | None = None,
     show_hidden: bool = False,
@@ -51,7 +51,7 @@ def index(
         return _redirect("/login")
 
     if sort not in photos.SORT_OPTIONS:
-        sort = "newest"
+        sort = photos.DEFAULT_SORT
     min_rating = max(0, min(5, min_rating))
     if page < 1:
         page = 1

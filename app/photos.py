@@ -42,35 +42,82 @@ def _decode_exif_value(val) -> str:
     return ""
 
 
-def extract_description(image_bytes: bytes) -> str:
-    """Pull title / description text out of an image's EXIF metadata.
+def _decode_exif_datetime(val) -> str:
+    """Convert an EXIF datetime string (YYYY:MM:DD HH:MM:SS) to an
+    ISO-ish string that sorts lexicographically. Returns '' on failure."""
+    if isinstance(val, bytes):
+        try:
+            val = val.decode("ascii", errors="replace")
+        except Exception:
+            return ""
+    if not isinstance(val, str):
+        return ""
+    val = val.replace("\x00", "").strip()
+    if not val:
+        return ""
+    # EXIF uses colons in the date portion; only swap the first two so
+    # the time portion's colons remain.
+    date_part, _, time_part = val.partition(" ")
+    date_iso = date_part.replace(":", "-", 2)
+    return (f"{date_iso} {time_part}".strip()) or ""
 
-    Returns an empty string when the image has none. Combines all
-    description-style fields (image description + Windows title /
-    subject / comment + EXIF user comment) so a search hits regardless
-    of which tool wrote the metadata.
-    """
+
+# EXIF tag IDs we look for in the main IFD and the EXIF sub-IFD (0x8769).
+_DATETIME_TAGS = (0x9003, 0x9004, 0x0132)  # Original, Digitized, ModifyDate
+
+
+def extract_exif_metadata(image_bytes: bytes) -> dict:
+    """Return {'description': str, 'taken_at': str} from an image's
+    EXIF. 'taken_at' is an ISO-style string ('YYYY-MM-DD HH:MM:SS'),
+    empty if the photo has no date tag."""
+    result = {"description": "", "taken_at": ""}
     try:
         with Image.open(io.BytesIO(image_bytes)) as im:
             exif = im.getexif()
             if not exif:
-                return ""
+                return result
+
+            # Description-like fields (Windows Titel + EXIF standard).
             seen: list[str] = []
             for tag_id, raw in exif.items():
-                name = TAGS.get(tag_id)
-                if name not in _DESCRIPTION_TAGS:
-                    continue
-                text = _decode_exif_value(raw)
-                if text and text not in seen:
-                    seen.append(text)
-            return " ".join(seen)
+                if TAGS.get(tag_id) in _DESCRIPTION_TAGS:
+                    text = _decode_exif_value(raw)
+                    if text and text not in seen:
+                        seen.append(text)
+            result["description"] = " ".join(seen)
+
+            # Taken-at: try the main IFD, then the EXIF sub-IFD where
+            # DateTimeOriginal usually lives.
+            def _find_date(d):
+                for tid in _DATETIME_TAGS:
+                    if tid in d:
+                        iso = _decode_exif_datetime(d[tid])
+                        if iso:
+                            return iso
+                return ""
+
+            taken = _find_date(exif)
+            if not taken and hasattr(exif, "get_ifd"):
+                try:
+                    sub = exif.get_ifd(0x8769) or {}
+                    taken = _find_date(sub)
+                except Exception:
+                    pass
+            result["taken_at"] = taken
     except Exception:
-        return ""
+        pass
+    return result
+
+
+def extract_description(image_bytes: bytes) -> str:
+    # Back-compat wrapper used by the older reindex path.
+    return extract_exif_metadata(image_bytes)["description"]
 
 ALLOWED_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 STREAM_CHUNK = 64 * 1024
 
-SORT_OPTIONS = ("newest", "oldest", "rating")
+SORT_OPTIONS = ("name", "newest", "oldest", "rating", "taken")
+DEFAULT_SORT = "name"
 
 
 @dataclass
@@ -122,11 +169,17 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
     filename = upload.filename or "photo"
     name_nonce, name_ct = crypto.encrypt(master_key, filename.encode("utf-8"))
 
-    description = extract_description(data)
+    meta = extract_exif_metadata(data)
+    description = meta["description"]
+    taken_at = meta["taken_at"]
     if description:
         desc_nonce, desc_ct = crypto.encrypt(master_key, description.encode("utf-8"))
     else:
         desc_nonce, desc_ct = None, None
+    if taken_at:
+        taken_nonce, taken_ct = crypto.encrypt(master_key, taken_at.encode("utf-8"))
+    else:
+        taken_nonce, taken_ct = None, None
 
     data_key, wrap_nonce, wrapped_key = crypto.wrap_data_key(master_key)
     nonce, ct = crypto.encrypt(data_key, data)
@@ -140,13 +193,15 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
                (original_name_ct, name_nonce, mime, size,
                 wrapped_key, wrap_nonce, nonce,
                 thumb_wrapped_key, thumb_wrap_nonce, thumb_nonce,
-                description_ct, description_nonce, description_indexed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                description_ct, description_nonce, description_indexed,
+                exif_taken_ct, exif_taken_nonce, exif_v2_indexed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1)""",
             (
                 name_ct, name_nonce, mime, len(data),
                 wrapped_key, wrap_nonce, nonce,
                 thumb_wrapped_key, thumb_wrap_nonce, thumb_nonce,
                 desc_ct, desc_nonce,
+                taken_ct, taken_nonce,
             ),
         )
         photo_id = cur.lastrowid
@@ -158,6 +213,8 @@ def save_upload(session: _Session, upload: UploadFile) -> int:
     session.thumb_cache.put(photo_id, thumb_bytes)
     if description:
         session.description_cache.put(photo_id, description)
+    if taken_at:
+        session.exif_date_cache.put(photo_id, taken_at)
     return photo_id
 
 
@@ -207,22 +264,33 @@ def list_photos_page(
     *,
     limit: int,
     offset: int,
-    sort: str = "newest",
+    sort: str = DEFAULT_SORT,
     min_rating: int = 0,
     filter_tag_id: int | None = None,
     include_hidden: bool = False,
     id_filter: set[int] | None = None,
 ) -> list[PhotoMeta]:
     if sort not in SORT_OPTIONS:
-        sort = "newest"
+        sort = DEFAULT_SORT
+    where_sql, where_params = _filter_clauses(
+        min_rating, filter_tag_id, include_hidden, id_filter,
+    )
+
+    # Filename and EXIF-date sorting can't be done in SQL because both
+    # fields are encrypted. Decrypt them into memory, sort, then slice
+    # the requested page. With the per-session caches this is fast for
+    # repeat queries.
+    if sort in ("name", "taken"):
+        return _python_sorted_page(
+            session, sort=sort, limit=limit, offset=offset,
+            where_sql=where_sql, where_params=where_params,
+        )
+
     order_sql = {
         "newest": "ORDER BY uploaded_at DESC, id DESC",
         "oldest": "ORDER BY uploaded_at ASC,  id ASC",
         "rating": "ORDER BY rating DESC, uploaded_at DESC, id DESC",
     }[sort]
-    where_sql, where_params = _filter_clauses(
-        min_rating, filter_tag_id, include_hidden, id_filter,
-    )
 
     with get_conn() as conn:
         rows = conn.execute(
@@ -344,19 +412,18 @@ def search_by_description(session: _Session, query: str) -> set[int]:
 def reindex_pending_count() -> int:
     with get_conn() as conn:
         return int(conn.execute(
-            "SELECT COUNT(*) AS c FROM photos WHERE description_indexed = 0"
+            "SELECT COUNT(*) AS c FROM photos WHERE exif_v2_indexed = 0"
         ).fetchone()["c"])
 
 
 def reindex_descriptions_batch(session: _Session, limit: int = 100) -> dict:
-    """Process up to `limit` photos that haven't been EXIF-scanned yet.
-    Decrypts the original to read EXIF, encrypts any description found
-    back into the row, and flips description_indexed=1 either way so we
-    never re-scan the same photo twice."""
+    """Process up to `limit` photos that haven't been EXIF-scanned for
+    the current metadata set. Decrypts the original, pulls description
+    + taken-at, re-encrypts both, and flips exif_v2_indexed=1."""
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, wrapped_key, wrap_nonce, nonce "
-            "FROM photos WHERE description_indexed = 0 LIMIT ?",
+            "FROM photos WHERE exif_v2_indexed = 0 LIMIT ?",
             (limit,),
         ).fetchall()
 
@@ -365,28 +432,35 @@ def reindex_descriptions_batch(session: _Session, limit: int = 100) -> dict:
     for r in rows:
         pid = r["id"]
         path = PHOTO_DIR / f"{pid}.bin"
-        desc = ""
+        desc, taken = "", ""
         if path.exists():
             try:
                 data_key = crypto.unwrap_data_key(master_key, r["wrap_nonce"], r["wrapped_key"])
                 plaintext = crypto.decrypt(data_key, r["nonce"], path.read_bytes())
-                desc = extract_description(plaintext)
+                meta = extract_exif_metadata(plaintext)
+                desc, taken = meta["description"], meta["taken_at"]
             except Exception:
-                desc = ""
+                pass
+
+        desc_ct = desc_nonce = None
+        taken_ct = taken_nonce = None
+        if desc:
+            desc_nonce, desc_ct = crypto.encrypt(master_key, desc.encode("utf-8"))
+        if taken:
+            taken_nonce, taken_ct = crypto.encrypt(master_key, taken.encode("utf-8"))
 
         with get_conn() as conn:
-            if desc:
-                nonce, ct = crypto.encrypt(master_key, desc.encode("utf-8"))
-                conn.execute(
-                    "UPDATE photos SET description_ct = ?, description_nonce = ?, "
-                    "description_indexed = 1 WHERE id = ?",
-                    (ct, nonce, pid),
-                )
-                session.description_cache.put(pid, desc)
-            else:
-                conn.execute(
-                    "UPDATE photos SET description_indexed = 1 WHERE id = ?", (pid,)
-                )
+            conn.execute(
+                "UPDATE photos SET description_ct = ?, description_nonce = ?, "
+                "description_indexed = 1, "
+                "exif_taken_ct = ?, exif_taken_nonce = ?, exif_v2_indexed = 1 "
+                "WHERE id = ?",
+                (desc_ct, desc_nonce, taken_ct, taken_nonce, pid),
+            )
+        if desc:
+            session.description_cache.put(pid, desc)
+        if taken:
+            session.exif_date_cache.put(pid, taken)
         processed += 1
 
     remaining = reindex_pending_count()
@@ -402,6 +476,93 @@ def set_hidden(photo_id: int, hidden: bool) -> bool:
         if cur.rowcount == 0:
             raise HTTPException(status_code=404)
     return hidden
+
+
+def _python_sorted_page(
+    session: _Session,
+    *,
+    sort: str,
+    limit: int,
+    offset: int,
+    where_sql: str,
+    where_params: list,
+) -> list[PhotoMeta]:
+    master_key = session.master_key
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""SELECT id, original_name_ct, name_nonce, mime, size,
+                       uploaded_at, rating, hidden,
+                       exif_taken_ct, exif_taken_nonce
+                FROM photos {where_sql}""",
+            where_params,
+        ).fetchall()
+
+    keyed: list[tuple] = []
+    for r in rows:
+        pid = r["id"]
+        if sort == "name":
+            cached = session.name_cache.get(pid)
+            if cached is None:
+                try:
+                    cached = crypto.decrypt(
+                        master_key, r["name_nonce"], r["original_name_ct"]
+                    ).decode("utf-8")
+                except Exception:
+                    cached = f"photo-{pid}"
+                session.name_cache.put(pid, cached)
+            keyed.append(((cached.casefold(), pid), r, cached))
+        else:  # taken — newest taken first; undated photos fall back to upload date
+            taken = None
+            if r["exif_taken_ct"] is not None:
+                cached = session.exif_date_cache.get(pid)
+                if cached is None:
+                    try:
+                        cached = crypto.decrypt(
+                            master_key, r["exif_taken_nonce"], r["exif_taken_ct"]
+                        ).decode("utf-8")
+                    except Exception:
+                        cached = ""
+                    session.exif_date_cache.put(pid, cached)
+                taken = cached or None
+            sort_key = (1 if taken else 0, taken or r["uploaded_at"], pid)
+            keyed.append((sort_key, r, None))
+
+    if sort == "name":
+        keyed.sort(key=lambda t: t[0])  # A → Z
+    else:
+        keyed.sort(key=lambda t: t[0], reverse=True)  # newest taken first
+
+    page = keyed[offset:offset + limit]
+    ids = [r["id"] for _, r, _ in page]
+    tag_map = tagmod.tags_for_photos(session, ids)
+
+    out: list[PhotoMeta] = []
+    for _, r, decrypted_name in page:
+        pid = r["id"]
+        name = decrypted_name
+        if name is None:
+            cached = session.name_cache.get(pid)
+            if cached is not None:
+                name = cached
+            else:
+                try:
+                    name = crypto.decrypt(
+                        master_key, r["name_nonce"], r["original_name_ct"]
+                    ).decode("utf-8")
+                except Exception:
+                    name = f"photo-{pid}"
+                session.name_cache.put(pid, name)
+        out.append(PhotoMeta(
+            id=pid,
+            name=name,
+            mime=r["mime"],
+            size=r["size"],
+            uploaded_at=r["uploaded_at"],
+            rating=r["rating"] or 0,
+            hidden=bool(r["hidden"]),
+            tags=tag_map.get(pid, []),
+        ))
+    return out
 
 
 def set_rating(photo_id: int, rating: int) -> int:

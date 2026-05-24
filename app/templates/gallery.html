@@ -30,11 +30,11 @@
   <button type="submit" class="link">Lock</button>
 </form>
 {% endblock %}
-{% set filters_active = sort != 'newest' or min_rating > 0 or active_tag or show_hidden or q %}
+{% set filters_active = sort != 'name' or min_rating > 0 or active_tag or show_hidden or q %}
 {% set filter_summary %}
   {% if filters_active %}
     {% set parts = [] %}
-    {% if sort != 'newest' %}{% set _ = parts.append(sort) %}{% endif %}
+    {% if sort != 'name' %}{% set _ = parts.append(sort) %}{% endif %}
     {% if min_rating > 0 %}{% set _ = parts.append('≥ ' ~ ('★' * min_rating)) %}{% endif %}
     {% if active_tag %}
       {% for t in all_tags %}{% if t.id == active_tag %}{% set _ = parts.append(t.name) %}{% endif %}{% endfor %}
@@ -76,8 +76,10 @@
     </label>
     <label>Sort
       <select name="sort" onchange="this.form.submit()">
-        <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest first</option>
-        <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>Oldest first</option>
+        <option value="name"   {% if sort == 'name'   %}selected{% endif %}>Filename (A–Z)</option>
+        <option value="taken"  {% if sort == 'taken'  %}selected{% endif %}>Taken date (newest)</option>
+        <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Uploaded newest</option>
+        <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>Uploaded oldest</option>
         <option value="rating" {% if sort == 'rating' %}selected{% endif %}>Top rated</option>
       </select>
     </label>
